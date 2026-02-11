@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.UUID;
+
 @Entity
 @Table(name = "users")
 @NoArgsConstructor
@@ -14,7 +16,7 @@ public class User {
 
     @Id
     @GeneratedValue
-    private Long id;
+    private UUID id;
 
     private String name;
 
