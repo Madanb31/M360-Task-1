@@ -1,22 +1,24 @@
 package com.madan.M360_Task_1.service;
 
-import com.madan.M360_Task_1.dto.UserResponse;
 import com.madan.M360_Task_1.models.User;
 import com.madan.M360_Task_1.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class UserService {
 
-    private final UserRepository userRepo;
+    @Autowired
+    private UserRepository userRepo;
 
-    public UserService(UserRepository userRepo) {
-        this.userRepo = userRepo;
-    }
+//    public UserService(UserRepository userRepo) {
+//        this.userRepo = userRepo;
+//    }
 
 
     //Dto helper
@@ -40,7 +42,7 @@ public class UserService {
         return userRepo.findAllByNameContainingIgnoreCase(name);
     }
 
-    public User getUserById(Long id) {
+    public User getUserById(UUID id) {
         return userRepo.findById(id)
                 .orElseThrow(() ->
                         new ResponseStatusException(
@@ -51,7 +53,7 @@ public class UserService {
     }
 
 
-    public void deleteUser(Long id) {
+    public void deleteUser(UUID id) {
         if (!userRepo.existsById(id)) {
             throw new ResponseStatusException(
                     HttpStatus.NOT_FOUND,
@@ -61,7 +63,7 @@ public class UserService {
         userRepo.deleteById(id);
     }
 
-    public User updateUser(Long id, User user) {
+    public User updateUser(UUID id, User user) {
 
         User existingUser = userRepo.findById(id)
                 .orElseThrow(() ->
