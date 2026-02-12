@@ -1,5 +1,6 @@
 package com.madan.M360_Task_1.controllers;
 
+import com.madan.M360_Task_1.dto.CreateUserRequest;
 import com.madan.M360_Task_1.dto.UserResponse;
 import com.madan.M360_Task_1.models.User;
 import com.madan.M360_Task_1.service.UserService;
@@ -24,9 +25,9 @@ public class UserController {
 //    }
 
     @PostMapping()
-    public ResponseEntity<?> addUser(@RequestBody User user){
+    public ResponseEntity<?> addUser(@RequestBody CreateUserRequest request){
 
-        User savedUser = userService.addUser(user);
+        User savedUser = userService.addUser(request);
         return new ResponseEntity<>(savedUser, HttpStatus.CREATED);
 
     }
@@ -51,13 +52,26 @@ public class UserController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<User> updateUser(
-            @PathVariable UUID id,
-            @RequestBody User user
-    ){
-        User updatedUser = userService.updateUser(id, user);
+    public ResponseEntity<?> updateUser(@PathVariable UUID id,
+                                        @RequestBody CreateUserRequest request) {
+        User updatedUser = userService.updateUser(id, request);
         return ResponseEntity.ok(updatedUser);
     }
+
+    @PutMapping("/{userId}/roles/{roleId}")
+    public ResponseEntity<?> assignRole(@PathVariable UUID userId,
+                                        @PathVariable UUID roleId) {
+        User user = userService.assignRole(userId, roleId);
+        return ResponseEntity.ok(user);
+    }
+
+    @DeleteMapping("/{userId}/roles/{roleId}")
+    public ResponseEntity<?> removeRole(@PathVariable UUID userId,
+                                        @PathVariable UUID roleId) {
+        User user = userService.removeRole(userId, roleId);
+        return ResponseEntity.ok(user);
+    }
+
 
     @DeleteMapping("/{id}")
     public ResponseEntity<String> deleteUser(
