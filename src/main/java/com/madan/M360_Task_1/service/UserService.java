@@ -40,7 +40,7 @@ public class UserService {
 
     public User addUser(CreateUserRequest request) {
 
-        // ✅ 1. Validate Email
+        //check user exists by email
         if (userRepository.existsByEmail(request.email())) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -48,14 +48,14 @@ public class UserService {
             );
         }
 
-        // ✅ 2. Create Address
+        // Create Address
         Address address = new Address();
         address.setStreet(request.street());
         address.setCity(request.city());
         address.setState(request.state());
         address.setZipcode(request.zipcode());
 
-        // ✅ 3. Handle Roles
+        // Handle Roles
         Set<Role> roles;
 
         if (request.roleIds() != null && !request.roleIds().isEmpty()) {
@@ -84,7 +84,7 @@ public class UserService {
             roles = Set.of(defaultRole);
         }
 
-        // ✅ 4. Create User
+        //Create User
         User user = new User();
         user.setName(request.name());
         user.setEmail(request.email());
