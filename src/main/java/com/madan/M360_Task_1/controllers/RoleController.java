@@ -3,6 +3,7 @@ package com.madan.M360_Task_1.controllers;
 import com.madan.M360_Task_1.models.Role;
 import com.madan.M360_Task_1.models.User;
 import com.madan.M360_Task_1.service.RoleService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,7 +19,7 @@ public class RoleController {
     private RoleService roleService;
 
     @PostMapping()
-    public ResponseEntity<?> addRole(@RequestBody Role role){
+    public ResponseEntity<?> addRole(@Valid @RequestBody Role role){
 
         Role savedRole = roleService.addRole(role);
         return new ResponseEntity<>(savedRole, HttpStatus.CREATED);

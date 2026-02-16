@@ -1,6 +1,7 @@
 package com.madan.M360_Task_1.service;
 
 import com.madan.M360_Task_1.dto.CreateUserRequest;
+import com.madan.M360_Task_1.dto.UserResponse;
 import com.madan.M360_Task_1.models.Address;
 import com.madan.M360_Task_1.models.Role;
 import com.madan.M360_Task_1.models.User;
@@ -29,13 +30,27 @@ public class UserService {
 //    }
 
 
-    //Dto helper
-//    public UserResponse toUserDto(User user){
-//        return new UserResponse(
-//                user.getName(),
-//                user.getEmail()
-//        );
-//    }
+    // Converter: Entity → Response DTO
+    public UserResponse toResponse(User user) {
+
+        List<String> roleNames = user.getRoles() != null
+                ? user.getRoles().stream()
+                .map(Role::getRoleName)
+                .toList()
+                : List.of();
+
+        return new UserResponse(
+                user.getId(),
+                user.getName(),
+                user.getEmail(),
+                user.getContactNum(),
+                user.getAddress() != null ? user.getAddress().getStreet() : null,
+                user.getAddress() != null ? user.getAddress().getCity() : null,
+                user.getAddress() != null ? user.getAddress().getState() : null,
+                user.getAddress() != null ? user.getAddress().getZipcode() : null,
+                roleNames
+        );
+    }
 
 
     public User addUser(CreateUserRequest request) {

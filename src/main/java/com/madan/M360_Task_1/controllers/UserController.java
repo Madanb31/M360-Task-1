@@ -4,6 +4,7 @@ import com.madan.M360_Task_1.dto.CreateUserRequest;
 import com.madan.M360_Task_1.dto.UserResponse;
 import com.madan.M360_Task_1.models.User;
 import com.madan.M360_Task_1.service.UserService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,16 +26,20 @@ public class UserController {
 //    }
 
     @PostMapping()
-    public ResponseEntity<?> addUser(@RequestBody CreateUserRequest request){
+    public ResponseEntity<?> addUser(@Valid @RequestBody CreateUserRequest request){
 
         User savedUser = userService.addUser(request);
-        return new ResponseEntity<>(savedUser, HttpStatus.CREATED);
+        return new ResponseEntity<>(userService.toResponse(savedUser), HttpStatus.CREATED);
 
     }
 
     @GetMapping()
-    public ResponseEntity<List<User>> getAllUsers(){
-        return new ResponseEntity<>(userService.getAllUsers(), HttpStatus.OK);
+    public ResponseEntity<?> getAllUsers(){
+        List<UserResponse> users = userService.getAllUsers()
+                .stream()
+                .map(userService::toResponse)
+                .toList();
+        return ResponseEntity.ok(users);
     }
 
     @GetMapping("/name/{name}")
@@ -45,15 +50,16 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<User> getUserById(
+    public ResponseEntity<?> getUserById(
             @PathVariable UUID id
     ){
-        return new ResponseEntity<>(userService.getUserById(id), HttpStatus.OK);
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(userService.toResponse(user));
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<?> updateUser(@PathVariable UUID id,
-                                        @RequestBody CreateUserRequest request) {
+                                        @Valid @RequestBody CreateUserRequest request) {
         User updatedUser = userService.updateUser(id, request);
         return ResponseEntity.ok(updatedUser);
     }

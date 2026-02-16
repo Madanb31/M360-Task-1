@@ -2,6 +2,7 @@ package com.madan.M360_Task_1.models;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
 import lombok.*;
 
 import java.util.Set;
@@ -20,8 +21,10 @@ public class Role {
     @GeneratedValue
     private UUID id;
 
+    @NotBlank(message = "Role name is required")
     @Column(nullable = false, unique = true)
     private String roleName;
+
 
     @ManyToMany(mappedBy = "roles")
     @JsonIgnore
