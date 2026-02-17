@@ -12,6 +12,7 @@ public record UserResponse(
         String city,
         String state,
         String zipCode,
-        List<String> roles
+        List<String> roles,
+        List<UUID> roleIds
 ) {
 }

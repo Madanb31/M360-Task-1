@@ -6,11 +6,14 @@ import com.madan.M360_Task_1.models.User;
 import com.madan.M360_Task_1.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 
@@ -87,5 +90,54 @@ public class UserController {
         return ResponseEntity.ok("User deleted successfully");
     }
 
+
+    // ====== NEW PAGINATION ENDPOINTS ======
+
+    // Simple pagination
+    // GET /users/page?page=0&size=10
+    @GetMapping("/page")
+    public ResponseEntity<?> getUsersWithPagination(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        Page<User> usersPage = userService.getUsersWithPagination(page, size);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("users", usersPage.getContent()
+                .stream()
+                .map(userService::toResponse)
+                .toList());
+        response.put("currentPage", usersPage.getNumber());
+        response.put("totalItems", usersPage.getTotalElements());
+        response.put("totalPages", usersPage.getTotalPages());
+
+        return ResponseEntity.ok(response);
+    }
+
+    // Pagination + Sorting
+    // GET /users/page/sort?page=0&size=10&sortBy=name&direction=asc
+    @GetMapping("/page/sort")
+    public ResponseEntity<?> getUsersWithPaginationAndSorting(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "name") String sortBy,
+            @RequestParam(defaultValue = "asc") String direction) {
+
+        Page<User> usersPage = userService.getUsersWithPaginationAndSorting(
+                page, size, sortBy, direction);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("users", usersPage.getContent()
+                .stream()
+                .map(userService::toResponse)
+                .toList());
+        response.put("currentPage", usersPage.getNumber());
+        response.put("totalItems", usersPage.getTotalElements());
+        response.put("totalPages", usersPage.getTotalPages());
+        response.put("sortBy", sortBy);
+        response.put("direction", direction);
+
+        return ResponseEntity.ok(response);
+    }
 
 }

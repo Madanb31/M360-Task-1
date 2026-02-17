@@ -8,6 +8,10 @@ import com.madan.M360_Task_1.models.User;
 import com.madan.M360_Task_1.repository.RoleRepository;
 import com.madan.M360_Task_1.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -39,6 +43,12 @@ public class UserService {
                 .toList()
                 : List.of();
 
+        List<UUID> roleIds = user.getRoles() != null
+                ? user.getRoles().stream()
+                .map(Role::getId)
+                .toList()
+                : List.of();
+
         return new UserResponse(
                 user.getId(),
                 user.getName(),
@@ -47,8 +57,9 @@ public class UserService {
                 user.getAddress() != null ? user.getAddress().getStreet() : null,
                 user.getAddress() != null ? user.getAddress().getCity() : null,
                 user.getAddress() != null ? user.getAddress().getState() : null,
-                user.getAddress() != null ? user.getAddress().getZipcode() : null,
-                roleNames
+                user.getAddress() != null ? user.getAddress().getZipCode() : null,
+                roleNames,
+                roleIds
         );
     }
 
@@ -68,7 +79,7 @@ public class UserService {
         address.setStreet(request.street());
         address.setCity(request.city());
         address.setState(request.state());
-        address.setZipcode(request.zipcode());
+        address.setZipCode(request.zipCode());
 
         // Handle Roles
         Set<Role> roles;
@@ -153,17 +164,21 @@ public class UserService {
         existingUser.setEmail(request.email());
         existingUser.setContactNum(request.contactNum());
 
-        // Update address
-        Address address = existingUser.getAddress();
-        if (address == null) {
-            address = new Address();
-        }
-        address.setStreet(request.street());
-        address.setCity(request.city());
-        address.setState(request.state());
-        address.setZipcode(request.zipcode());
-        existingUser.setAddress(address);
+        // Update address ONLY if at least one field is provided
+        if (request.street() != null || request.city() != null
+                || request.state() != null || request.zipCode() != null) {
 
+            Address address = existingUser.getAddress();
+            if (address == null) {
+                address = new Address();
+            }
+            // Only update fields that are not null
+            if (request.street() != null) address.setStreet(request.street());
+            if (request.city() != null) address.setCity(request.city());
+            if (request.state() != null) address.setState(request.state());
+            if (request.zipCode() != null) address.setZipCode(request.zipCode());
+            existingUser.setAddress(address);
+        }
         // Update roles if provided
         if (request.roleIds() != null && !request.roleIds().isEmpty()) {
             Set<Role> roles = new HashSet<>(roleRepository.findAllById(request.roleIds()));
@@ -220,4 +235,25 @@ public class UserService {
         user.getRoles().remove(role);
         return userRepository.save(user);
     }
+
+    // ====== NEW: PAGINATION METHODS ======
+
+    // Simple pagination
+    public Page<User> getUsersWithPagination(int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        return userRepository.findAll(pageable);
+    }
+
+    // Pagination + Sorting
+    public Page<User> getUsersWithPaginationAndSorting(
+            int page, int size, String sortBy, String direction) {
+
+        Sort sort = direction.equalsIgnoreCase("desc")
+                ? Sort.by(sortBy).descending()
+                : Sort.by(sortBy).ascending();
+
+        Pageable pageable = PageRequest.of(page, size, sort);
+        return userRepository.findAll(pageable);
+    }
+
 }

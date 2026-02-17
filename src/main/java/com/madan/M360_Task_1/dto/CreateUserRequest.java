@@ -25,7 +25,7 @@ public record CreateUserRequest(
         String street,
         String city,
         String state,
-        String zipcode,
+        String zipCode,
 
         // Role IDs
         Set<UUID> roleIds
