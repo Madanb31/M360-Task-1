@@ -64,64 +64,6 @@ public class UserService {
         );
     }
 
-
-    public User addUser(CreateUserRequest request) {
-
-        //check user exists by email
-        if (userRepository.existsByEmail(request.email())) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Email already exists"
-            );
-        }
-
-        // Create Address
-        Address address = new Address();
-        address.setStreet(request.street());
-        address.setCity(request.city());
-        address.setState(request.state());
-        address.setZipCode(request.zipCode());
-
-        // Handle Roles
-        Set<Role> roles;
-
-        if (request.roleIds() != null && !request.roleIds().isEmpty()) {
-
-            roles = new HashSet<>(roleRepository.findAllById(request.roleIds()));
-
-            // Validate all role IDs exist
-            if (roles.size() != request.roleIds().size()) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "One or more roles are invalid"
-                );
-            }
-
-        } else {
-
-            // Assign default USER role
-            Role defaultRole = roleRepository.findByRoleNameIgnoreCase("USER")
-                    .orElseThrow(() ->
-                            new ResponseStatusException(
-                                    HttpStatus.INTERNAL_SERVER_ERROR,
-                                    "Default USER role not configured"
-                            )
-                    );
-
-            roles = Set.of(defaultRole);
-        }
-
-        //Create User
-        User user = new User();
-        user.setName(request.name());
-        user.setEmail(request.email());
-        user.setContactNum(request.contactNum());
-        user.setAddress(address);
-        user.setRoles(roles);
-
-        return userRepository.save(user);
-    }
-
     public List<User> getAllUsers() {
         return userRepository.findAll();
     }
