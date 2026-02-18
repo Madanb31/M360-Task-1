@@ -4,6 +4,8 @@ import com.madan.M360_Task_1.dto.CreateUserRequest;
 import com.madan.M360_Task_1.dto.UserResponse;
 import com.madan.M360_Task_1.models.User;
 import com.madan.M360_Task_1.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -19,6 +21,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/users")
+@Tag(name = "Users", description = "User management APIs")
 public class UserController {
 
     @Autowired
@@ -28,6 +31,7 @@ public class UserController {
 //        this.userService = userService;
 //    }
 
+    @Operation(summary = "Create user", description = "Create a new user with address and roles (ADMIN only)")
     @PostMapping()
     public ResponseEntity<?> addUser(@Valid @RequestBody CreateUserRequest request){
 
@@ -36,6 +40,7 @@ public class UserController {
 
     }
 
+    @Operation(summary = "Get all users", description = "Get list of all users")
     @GetMapping()
     public ResponseEntity<?> getAllUsers(){
         List<UserResponse> users = userService.getAllUsers()
@@ -45,6 +50,7 @@ public class UserController {
         return ResponseEntity.ok(users);
     }
 
+    @Operation(summary = "Search users by name", description = "Search users by name (partial match)")
     @GetMapping("/name/{name}")
     public ResponseEntity<List<User>> getUsersByName(
             @PathVariable String name
@@ -52,6 +58,7 @@ public class UserController {
         return new ResponseEntity<>(userService.getUsersByName(name), HttpStatus.OK);
     }
 
+    @Operation(summary = "Get user by ID", description = "Get user details by their ID")
     @GetMapping("/{id}")
     public ResponseEntity<?> getUserById(
             @PathVariable UUID id
@@ -60,6 +67,7 @@ public class UserController {
         return ResponseEntity.ok(userService.toResponse(user));
     }
 
+    @Operation(summary = "Update user", description = "Update existing user details (ADMIN only)")
     @PutMapping("/{id}")
     public ResponseEntity<?> updateUser(@PathVariable UUID id,
                                         @Valid @RequestBody CreateUserRequest request) {
@@ -67,6 +75,7 @@ public class UserController {
         return ResponseEntity.ok(updatedUser);
     }
 
+    @Operation(summary = "Assign role to user", description = "Assign a role to a user (ADMIN only)")
     @PutMapping("/{userId}/roles/{roleId}")
     public ResponseEntity<?> assignRole(@PathVariable UUID userId,
                                         @PathVariable UUID roleId) {
@@ -74,6 +83,7 @@ public class UserController {
         return ResponseEntity.ok(user);
     }
 
+    @Operation(summary = "Delete user", description = "Delete a user by ID (ADMIN only)")
     @DeleteMapping("/{userId}/roles/{roleId}")
     public ResponseEntity<?> removeRole(@PathVariable UUID userId,
                                         @PathVariable UUID roleId) {
@@ -81,7 +91,7 @@ public class UserController {
         return ResponseEntity.ok(user);
     }
 
-
+    @Operation(summary = "Delete user", description = "Delete a user by ID (ADMIN only)")
     @DeleteMapping("/{id}")
     public ResponseEntity<String> deleteUser(
             @PathVariable UUID id
@@ -116,6 +126,7 @@ public class UserController {
 
     // Pagination + Sorting
     // GET /users/page/sort?page=0&size=10&sortBy=name&direction=asc
+    @Operation(summary = "Get users with pagination", description = "Get paginated and sorted users list")
     @GetMapping("/page/sort")
     public ResponseEntity<?> getUsersWithPaginationAndSorting(
             @RequestParam(defaultValue = "0") int page,

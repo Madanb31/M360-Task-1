@@ -48,6 +48,16 @@ public class SecurityConfig {
                         // PUBLIC — anyone can access
                         .requestMatchers("/auth/**").permitAll()
 
+                        // Swagger URLs — ALL of these are needed
+                        .requestMatchers(
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/v3/api-docs/**",
+                                "/api-docs/**",
+                                "/swagger-resources/**",
+                                "/webjars/**"
+                        ).permitAll()
+
                         // ADMIN only — create, update, delete
                         .requestMatchers(HttpMethod.POST, "/users").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/users/**").hasRole("ADMIN")
