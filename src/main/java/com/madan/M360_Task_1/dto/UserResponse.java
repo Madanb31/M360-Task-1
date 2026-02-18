@@ -5,6 +5,7 @@ import java.util.UUID;
 
 public record UserResponse(
         UUID id,
+        String username,
         String name,
         String email,
         String contactNum,
@@ -14,5 +15,4 @@ public record UserResponse(
         String zipCode,
         List<String> roles,
         List<UUID> roleIds
-) {
-}
+) {}
