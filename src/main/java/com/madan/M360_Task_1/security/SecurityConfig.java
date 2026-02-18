@@ -59,7 +59,6 @@ public class SecurityConfig {
                         ).permitAll()
 
                         // ADMIN only — create, update, delete
-                        .requestMatchers(HttpMethod.POST, "/users").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/roles").hasRole("ADMIN")
