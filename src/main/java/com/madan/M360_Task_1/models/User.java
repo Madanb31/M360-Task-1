@@ -1,6 +1,6 @@
 package com.madan.M360_Task_1.models;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -27,6 +27,14 @@ public class User {
     private String email;
 
     private String contactNum;
+
+    // NEW: Auth fields
+    @Column(nullable = false, unique = true)
+    private String username;
+
+    @JsonIgnore  // Never send password in response
+    @Column(nullable = false)
+    private String password;
 
     @OneToOne(cascade = CascadeType.ALL)
     @JoinColumn(unique = true)
