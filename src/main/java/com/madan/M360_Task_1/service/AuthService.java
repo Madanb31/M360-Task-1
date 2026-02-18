@@ -3,8 +3,11 @@ package com.madan.M360_Task_1.service;
 import com.madan.M360_Task_1.dto.AuthResponse;
 import com.madan.M360_Task_1.dto.LoginRequest;
 import com.madan.M360_Task_1.dto.RegisterRequest;
-import com.madan.M360_Task_1.models.AuthUser;
-import com.madan.M360_Task_1.repository.AuthUserRepository;
+import com.madan.M360_Task_1.models.Address;
+import com.madan.M360_Task_1.models.Role;
+import com.madan.M360_Task_1.models.User;
+import com.madan.M360_Task_1.repository.RoleRepository;
+import com.madan.M360_Task_1.repository.UserRepository;
 import com.madan.M360_Task_1.security.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -12,11 +15,17 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.HashSet;
+import java.util.Set;
+
 @Service
 public class AuthService {
 
     @Autowired
-    private AuthUserRepository authUserRepository;
+    private UserRepository userRepository;
+
+    @Autowired
+    private RoleRepository roleRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -27,39 +36,72 @@ public class AuthService {
     // REGISTER
     public String register(RegisterRequest request) {
 
-        // Check if username already exists
-        if (authUserRepository.existsByUsername(request.username())) {
+        // Check username
+        if (userRepository.existsByUsername(request.username())) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Username already exists"
             );
         }
 
-        // Validate role
-        String role = request.role().toUpperCase();
-        if (!role.equals("ADMIN") && !role.equals("USER")) {
+        // Check email
+        if (userRepository.existsByEmail(request.email())) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Role must be ADMIN or USER"
+                    "Email already exists"
             );
         }
 
-        // Create auth user
-        AuthUser authUser = new AuthUser();
-        authUser.setUsername(request.username());
-        authUser.setPassword(passwordEncoder.encode(request.password()));  // BCrypt encrypt!
-        authUser.setRole(role);
+        // Create user
+        User user = new User();
+        user.setUsername(request.username());
+        user.setPassword(passwordEncoder.encode(request.password()));
+        user.setName(request.name());
+        user.setEmail(request.email());
+        user.setContactNum(request.contactNum());
 
-        authUserRepository.save(authUser);
+        // Set address if provided
+        if (request.street() != null || request.city() != null
+                || request.state() != null || request.zipCode() != null) {
+            Address address = new Address();
+            address.setStreet(request.street());
+            address.setCity(request.city());
+            address.setState(request.state());
+            address.setZipCode(request.zipCode());
+            user.setAddress(address);
+        }
 
+        // Set roles
+        if (request.roleIds() != null && !request.roleIds().isEmpty()) {
+            Set<Role> roles = new HashSet<>(roleRepository.findAllById(request.roleIds()));
+            if (roles.size() != request.roleIds().size()) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "One or more roles are invalid"
+                );
+            }
+            user.setRoles(roles);
+        } else {
+            // Default USER role
+            Role defaultRole = roleRepository.findByRoleNameIgnoreCase("USER")
+                    .orElseThrow(() ->
+                            new ResponseStatusException(
+                                    HttpStatus.INTERNAL_SERVER_ERROR,
+                                    "Default USER role not configured"
+                            )
+                    );
+            user.setRoles(Set.of(defaultRole));
+        }
+
+        userRepository.save(user);
         return "User registered successfully";
     }
 
     // LOGIN
     public AuthResponse login(LoginRequest request) {
 
-        // Find user by username
-        AuthUser authUser = authUserRepository.findByUsername(request.username())
+        // Find user
+        User user = userRepository.findByUsername(request.username())
                 .orElseThrow(() ->
                         new ResponseStatusException(
                                 HttpStatus.UNAUTHORIZED,
@@ -68,17 +110,22 @@ public class AuthService {
                 );
 
         // Check password
-        if (!passwordEncoder.matches(request.password(), authUser.getPassword())) {
+        if (!passwordEncoder.matches(request.password(), user.getPassword())) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
                     "Invalid username or password"
             );
         }
 
-        // Generate JWT token
-        String token = jwtUtil.generateToken(authUser.getUsername(), authUser.getRole());
+        // Get first role for token
+        String role = user.getRoles().stream()
+                .findFirst()
+                .map(Role::getRoleName)
+                .orElse("USER");
 
-        // Return token + user info
-        return new AuthResponse(token, authUser.getUsername(), authUser.getRole());
+        // Generate token
+        String token = jwtUtil.generateToken(user.getUsername(), role);
+
+        return new AuthResponse(token, user.getUsername(), role);
     }
 }
