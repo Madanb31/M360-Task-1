@@ -31,15 +31,6 @@ public class UserController {
 //        this.userService = userService;
 //    }
 
-    @Operation(summary = "Create user", description = "Create a new user with address and roles (ADMIN only)")
-    @PostMapping()
-    public ResponseEntity<?> addUser(@Valid @RequestBody CreateUserRequest request){
-
-        User savedUser = userService.addUser(request);
-        return new ResponseEntity<>(userService.toResponse(savedUser), HttpStatus.CREATED);
-
-    }
-
     @Operation(summary = "Get all users", description = "Get list of all users")
     @GetMapping()
     public ResponseEntity<?> getAllUsers(){
