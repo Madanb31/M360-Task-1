@@ -51,6 +51,7 @@ public class UserService {
 
         return new UserResponse(
                 user.getId(),
+                user.getUsername(),
                 user.getName(),
                 user.getEmail(),
                 user.getContactNum(),
