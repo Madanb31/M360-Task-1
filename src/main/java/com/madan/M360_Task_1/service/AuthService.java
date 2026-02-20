@@ -36,7 +36,6 @@ public class AuthService {
     // REGISTER
     public String register(RegisterRequest request) {
 
-        // Check username
         if (userRepository.existsByUsername(request.username())) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -44,7 +43,6 @@ public class AuthService {
             );
         }
 
-        // Check email
         if (userRepository.existsByEmail(request.email())) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -52,7 +50,6 @@ public class AuthService {
             );
         }
 
-        // Create user
         User user = new User();
         user.setUsername(request.username());
         user.setPassword(passwordEncoder.encode(request.password()));
@@ -60,7 +57,7 @@ public class AuthService {
         user.setEmail(request.email());
         user.setContactNum(request.contactNum());
 
-        // Set address if provided
+        // Address
         if (request.street() != null || request.city() != null
                 || request.state() != null || request.zipCode() != null) {
             Address address = new Address();
@@ -71,27 +68,15 @@ public class AuthService {
             user.setAddress(address);
         }
 
-        // Set roles
-        if (request.roleIds() != null && !request.roleIds().isEmpty()) {
-            Set<Role> roles = new HashSet<>(roleRepository.findAllById(request.roleIds()));
-            if (roles.size() != request.roleIds().size()) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "One or more roles are invalid"
+        // Always USER role
+        Role userRole = roleRepository.findByRoleNameIgnoreCase("USER")
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.INTERNAL_SERVER_ERROR,
+                                "Default USER role not configured"
+                        )
                 );
-            }
-            user.setRoles(roles);
-        } else {
-            // Default USER role
-            Role defaultRole = roleRepository.findByRoleNameIgnoreCase("USER")
-                    .orElseThrow(() ->
-                            new ResponseStatusException(
-                                    HttpStatus.INTERNAL_SERVER_ERROR,
-                                    "Default USER role not configured"
-                            )
-                    );
-            user.setRoles(Set.of(defaultRole));
-        }
+        user.setRoles(Set.of(userRole));
 
         userRepository.save(user);
         return "User registered successfully";
@@ -100,7 +85,6 @@ public class AuthService {
     // LOGIN
     public AuthResponse login(LoginRequest request) {
 
-        // Find user
         User user = userRepository.findByUsername(request.username())
                 .orElseThrow(() ->
                         new ResponseStatusException(
@@ -109,7 +93,6 @@ public class AuthService {
                         )
                 );
 
-        // Check password
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
@@ -117,13 +100,13 @@ public class AuthService {
             );
         }
 
-        // Get first role for token
+        // Pick the HIGHEST role (ADMIN > USER)
         String role = user.getRoles().stream()
-                .findFirst()
                 .map(Role::getRoleName)
+                .filter(r -> r.equals("ADMIN"))
+                .findFirst()
                 .orElse("USER");
 
-        // Generate token
         String token = jwtUtil.generateToken(user.getUsername(), role);
 
         return new AuthResponse(token, user.getUsername(), role);
