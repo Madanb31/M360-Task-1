@@ -63,6 +63,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.DELETE, "/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/roles").hasRole("ADMIN")
 
+                        .requestMatchers("/ai/**").permitAll()
+
                         // AUTHENTICATED — any logged-in user
                         .anyRequest().authenticated()
                 )
