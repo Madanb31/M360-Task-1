@@ -62,6 +62,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/roles").hasRole("ADMIN")
+                        .requestMatchers("/ai/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/hitl/**").hasRole("ADMIN")
+                        .requestMatchers("/ai/orchestrate").authenticated()
+
+                        .requestMatchers("/ai/docs/**").permitAll()
 
                         .requestMatchers("/ai/**").permitAll()
 
