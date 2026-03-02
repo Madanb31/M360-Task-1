@@ -1,5 +1,6 @@
 package com.madan.M360_Task_1.ai;
 
+import com.madan.M360_Task_1.ai.tools.RagTools;
 import com.madan.M360_Task_1.ai.tools.ReadOnlyOrchestratorTools;
 import com.madan.M360_Task_1.ai.tools.UserCreateTools;
 import com.madan.M360_Task_1.ai.tools.UserTools;
@@ -38,6 +39,7 @@ public class AdminOrchestratorAgent {
                                   ReadOnlyOrchestratorTools readOnlyTools,
                                   UserTools userTools,
                                   UserCreateTools userCreateTools,
+                                  RagTools ragTools,
                                   ChatMemory chatMemory,
                                   AgentAuditRepository auditRepository,
                                   ActionRequestService actionRequestService) {
@@ -58,7 +60,7 @@ public class AdminOrchestratorAgent {
                     - Never invent IDs.
                     """)
                 // NOTE: No HITL tool needed now; we create requests deterministically in Java.
-                .defaultTools(readOnlyTools, userTools, userCreateTools)
+                .defaultTools(readOnlyTools, userTools, userCreateTools, ragTools)
                 .build();
     }
 

@@ -1,5 +1,6 @@
 package com.madan.M360_Task_1.ai;
 
+import com.madan.M360_Task_1.ai.tools.RagTools;
 import com.madan.M360_Task_1.ai.tools.ReadOnlyOrchestratorTools;
 import com.madan.M360_Task_1.ai.tools.UserTools;
 import com.madan.M360_Task_1.models.AgentAuditLog;
@@ -27,6 +28,7 @@ public class ReadOnlyOrchestratorAgent {
     public ReadOnlyOrchestratorAgent(ChatClient.Builder builder,
                                      ReadOnlyOrchestratorTools readOnlyTools,
                                      UserTools userTools,
+                                     RagTools ragTools,
                                      ChatMemory chatMemory,
                                      AgentAuditRepository auditRepository) {
 
@@ -39,7 +41,7 @@ public class ReadOnlyOrchestratorAgent {
                     You are the Read-Only Orchestrator Agent.
                     You are strictly READ-ONLY. You MUST NOT modify data.
                     """)
-                .defaultTools(readOnlyTools, userTools)
+                .defaultTools(readOnlyTools, userTools,ragTools)
                 .build();
     }
 
