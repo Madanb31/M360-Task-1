@@ -64,9 +64,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/roles").hasRole("ADMIN")
                         .requestMatchers("/ai/admin/**").hasRole("ADMIN")
                         .requestMatchers("/hitl/**").hasRole("ADMIN")
+                        .requestMatchers("/ai/docs/**").hasRole("ADMIN")
                         .requestMatchers("/ai/orchestrate").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/ai/docs/chat").authenticated()
 
-                        .requestMatchers("/ai/docs/**").permitAll()
 
                         .requestMatchers("/ai/**").permitAll()
 
