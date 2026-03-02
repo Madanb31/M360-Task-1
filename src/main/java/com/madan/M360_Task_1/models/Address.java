@@ -1,9 +1,6 @@
 package com.madan.M360_Task_1.models;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -14,6 +11,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Data
+@Table(name = "addresses")
 public class Address {
 
     @Id
@@ -26,6 +24,7 @@ public class Address {
 
     private String state;
 
+    @Column(name = "zipcode")
     private String zipCode;
 
 }
