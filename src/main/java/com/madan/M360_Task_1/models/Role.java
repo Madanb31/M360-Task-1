@@ -15,6 +15,7 @@ import java.util.UUID;
 @Setter
 @ToString(exclude = "users")
 @EqualsAndHashCode(exclude = "users")
+@Table(name = "roles")
 public class Role {
 
     @Id
