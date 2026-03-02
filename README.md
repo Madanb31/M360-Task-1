@@ -1,134 +1,199 @@
-🚀 Agentic AI User Management Platform
+# 🤖 Agentic AI User Management Platform
 
-A governed, multi-agent AI system built with Spring Boot and Spring AI, designed to automate user management operations securely. The platform features role-based access control (RBAC), Human-in-the-Loop (HITL) governance, and a deterministic orchestration layer.
+> A governed, multi-agent AI system built with **Spring Boot** and **Spring AI** — automating user management operations with security, auditability, and human oversight at its core.
 
-🏗️ Architecture
+---
 
-The system follows a Multi-Agent Orchestration pattern where specialized agents handle specific domains (Analysis vs. Management), coordinated by role-specific Orchestrators.
+## 📐 Architecture Overview
 
-🧠 The Agents
+The platform follows a **Multi-Agent Orchestration** pattern where specialized agents handle distinct domains, coordinated by role-specific orchestrators.
 
-UserAnalysisAgent (The Reader 📖)
+```
+                        ┌──────────────────────────────────────┐
+                        │           Spring Boot API             │
+                        │  /ai/orchestrate  /ai/admin/orchestrate│
+                        └──────────┬──────────────┬────────────┘
+                                   │              │
+               ┌───────────────────▼──┐    ┌──────▼───────────────────┐
+               │  ReadOnlyOrchestrator │    │   AdminOrchestrator       │
+               │     (USER role)       │    │   (ADMIN role)            │
+               │  ─ LLM routing only ─ │    │  ─ LLM + Deterministic ─ │
+               └───────────┬──────────┘    └──────┬────────────────────┘
+                           │                      │
+               ┌───────────▼──────────┐  ┌────────▼───────────────────┐
+               │   UserAnalysisAgent  │  │    UserManagementAgent      │
+               │      📖 Reader        │  │       ✍️  Writer             │
+               │  userSearchTool      │  │  createUserTool             │
+               │  listAllUsersTool    │  │  deleteUserTool             │
+               │  READ-ONLY           │  │  assignRoleTool             │
+               └──────────────────────┘  └─────────────┬──────────────┘
+                                                        │
+                                            ┌───────────▼────────────┐
+                                            │     HITL Gate ✋         │
+                                            │  Approval Required for  │
+                                            │  Delete / Promote ops   │
+                                            └────────────────────────┘
+```
 
-Role: Analyzes user profiles, searches database, checks data completeness.
+---
 
-Tools: Deterministic DB lookups (userSearchTool, listAllUsersTool).
+## 🧠 The Agents
 
-Capability: 100% Read-Only. Cannot modify data.
+### `UserAnalysisAgent` — The Reader 📖
 
-Tech: Uses Chain-of-Thought (CoT) prompting to prevent hallucinations and produce structured JSON reports.
+| Property | Detail |
+|---|---|
+| **Role** | Analyzes user profiles, searches the database, checks data completeness |
+| **Tools** | `userSearchTool`, `listAllUsersTool` (deterministic DB lookups) |
+| **Capability** | **100% Read-Only** — cannot modify any data |
+| **Prompting** | Chain-of-Thought (CoT) to prevent hallucinations & produce structured JSON |
 
-UserManagementAgent (The Writer ✍️)
+### `UserManagementAgent` — The Writer ✍️
 
-Role: Handles sensitive operations (Create, Delete, Promote, Demote).
+| Property | Detail |
+|---|---|
+| **Role** | Handles sensitive operations: Create, Delete, Promote, Demote |
+| **Tools** | `createUserTool`, `deleteUserTool`, `assignRoleTool` |
+| **Access** | **Admin Orchestrator only** — never exposed to USER role |
 
-Tools: UserManagementTools (Create/Delete/AssignRole).
+---
 
-Governance: Only accessible via Admin Orchestrator.
+## 👔 The Orchestrators
 
-The Orchestrators (The Bosses 👔)
+### `ReadOnlyOrchestratorAgent` (USER role)
+- Wired with **read tools only** — write actions are architecturally impossible
+- All requests routed through LLM with CoT reasoning
 
-ReadOnlyOrchestratorAgent:
+### `AdminOrchestratorAgent` (ADMIN role)
+- Wired with **read + write tools**
+- **Deterministic Routing**: exact commands like `"delete user"` or `"list admins"` bypass the LLM entirely for maximum reliability
 
-For USER role.
+---
 
-Wiring: Only has access to Read Tools.
+## 🛡️ Security & Governance
 
-Security: Impossible to trigger write actions (tools missing).
+### ✋ Human-in-the-Loop (HITL)
 
-AdminOrchestratorAgent:
+Risky operations are **never executed immediately** by the AI.
 
-For ADMIN role.
+```
+AI decides action needed
+        │
+        ▼
+Create Approval Request (Status: PENDING)
+        │
+        ▼
+Admin reviews via UI  ──[Reject]──► Action Cancelled
+        │
+     [Approve]
+        │
+        ▼
+Backend executes deterministically
+```
 
-Wiring: Has Read + Write Tools.
+**HITL-gated operations:**
+- 🗑️ Delete User
+- 🔑 Assign Admin Role
 
-Deterministic Routing: Bypasses LLM for exact commands ("delete user", "list admins") to ensure reliability.
+---
 
-🛡️ Security & Governance
+### 🔐 Role-Based Access Control (RBAC)
 
-1. Human-in-the-Loop (HITL) ✋
-   
-Risky actions (Delete User, Assign Admin Role) are not executed immediately by the AI.
+| Endpoint | USER | ADMIN |
+|---|:---:|:---:|
+| `POST /ai/orchestrate` | ✅ | ✅ |
+| `POST /ai/admin/orchestrate` | ❌ | ✅ |
+| `GET/POST /hitl/**` | ❌ | ✅ |
 
-Step 1: AI creates an Approval Request (Status: PENDING) in the database.
+**Auth:** Stateless JWT (HS256) with BCrypt password hashing.
 
-Step 2: Human Admin reviews the request via UI.
+---
 
-Step 3: On Approval (POST /hitl/actions/{id}/approve), the backend executes the action deterministically.
+### 📜 Audit Trail
 
-2. Role-Based Access Control (RBAC) 🔐
-   
-JWT Authentication: Stateless security using BCrypt & HS256 tokens.
+Every AI interaction is logged to `agent_audit_logs`:
 
-Endpoint Security:
+```
+┌─────────────────┬──────────────┬──────────────┬─────────────┐
+│   Query         │  Response    │  Exec Time   │ Token Usage │
+├─────────────────┼──────────────┼──────────────┼─────────────┤
+│ "list all users"│  {...}       │  142ms       │  312 tokens │
+│ "delete alice"  │  HITL_PEND  │  98ms        │  201 tokens │
+└─────────────────┴──────────────┴──────────────┴─────────────┘
+```
 
-/ai/orchestrate → Accessible to USER & ADMIN (Read-Only).
+---
 
-/ai/admin/orchestrate → Accessible to ADMIN only (Read/Write).
+## 🛠️ Tech Stack
 
-/hitl/** → Accessible to ADMIN only.
+| Layer | Technology |
+|---|---|
+| **Backend** | Java 21, Spring Boot 3.x |
+| **AI Framework** | Spring AI 1.1.2 |
+| **LLM** | Google Gemini 2.0 Flash (Google AI Studio) |
+| **Database** | PostgreSQL |
+| **Security** | Spring Security, JWT (jjwt), BCrypt |
+| **Frontend** | React.js, Bootstrap |
+| **Build** | Maven |
 
-4. Audit Trail 📜
-   
-Every AI interaction (Query, Response, Execution Time, Token Usage) is logged to agent_audit_logs.
+---
 
-Every management action (Create/Delete) is logged.
+## ✅ Key Features
 
-🛠️ Tech Stack
-Backend: Java 21, Spring Boot 3.x
+| Feature | Description |
+|---|---|
+| 🔧 **Function Calling** | AI connects to real PostgreSQL database via Spring AI tools |
+| 📊 **Structured Output** | AI returns strict Java Records (JSON) — no free-form text |
+| 🧠 **Chat Memory** | Context-aware sessions — *"Analyze him"* resolves to previous subject |
+| 🎯 **Hallucination Control** | Deterministic routing for critical queries bypasses LLM generation |
+| 🔀 **Dual-Client Pattern** | Separate `ChatClient` for tool execution vs. JSON formatting |
 
-AI Framework: Spring AI 1.1.2
+---
 
-LLM: Google Gemini 2.0 Flash (via Google AI Studio)
+## 🚀 Getting Started
 
-Database: PostgreSQL
+### Backend
 
-Security: Spring Security, JWT (jjwt)
+```bash
+# 1. Clone the repository
+git clone https://github.com/your-username/agentic-user-management.git
+cd agentic-user-management
 
-Frontend: React.js, Bootstrap
+# 2. Set environment variables in application.properties
+spring.ai.google.genai.api-key=YOUR_GEMINI_KEY
+jwt.secret=YOUR_JWT_SECRET
 
-Build Tool: Maven
+# 3. Run
+mvn spring-boot:run
+```
 
-🚀 Key Features Implemented
+📖 **Swagger UI:** [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
 
-✅ Function Calling (Tools): AI connects to real PostgreSQL database.
+### Frontend
 
-✅ Structured Output: AI returns strict JSON objects (Java Records) instead of random text.
+```bash
+cd frontend
+npm install
+npm start
+```
 
-✅ Chat Memory: Context-aware conversations ("Analyze him" refers to previous user).
+🌐 **App:** [http://localhost:3000](http://localhost:3000)
 
-✅ Hallucination Control: Deterministic routing for critical queries ("List all users" bypasses LLM generation).
+---
 
-✅ Dual-Client Pattern: Uses one ChatClient for tools and another for JSON formatting to ensure reliability.
+## 🔮 Roadmap
 
-🏃‍♂️ How to Run
+- [ ] **RAG Integration** — Document search with `pgvector` for policy lookups
+- [ ] **Observability Dashboard** — Real-time token usage & agent latency metrics
+- [ ] **Multi-tenant Support** — Isolated agent contexts per organization
+- [ ] **Webhook Notifications** — HITL approval requests via Slack / email
 
-1. Backend
-   
-Clone repository.
+---
 
-Set environment variables in application.properties:
+## 🤝 Contributing
 
-  spring.ai.google.genai.api-key=YOUR_GEMINI_KEY
-  
-  jwt.secret=YOUR_JWT_SECRET
-  
-Run mvn spring-boot:run.
+Contributions, issues, and feature requests are welcome! Feel free to open an issue or submit a pull request.
 
-Swagger UI: http://localhost:8080/swagger-ui/index.html
+---
 
-2. Frontend
-   
-Navigate to frontend/.
-
-Run npm install.
-
-Run npm start.
-
-App available at http://localhost:3000.
-
-🔮 Future Roadmap
-
-->RAG (Retrieval Augmented Generation): Document search using pgvector for policy lookups.
-
-->Advanced Observability: Dashboard for token usage and agent latency.
+<p align="center">Built with ☕ Java, 🤖 Spring AI, and a commitment to <strong>responsible AI governance</strong></p>
