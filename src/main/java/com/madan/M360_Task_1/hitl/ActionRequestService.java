@@ -2,11 +2,8 @@ package com.madan.M360_Task_1.hitl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.madan.M360_Task_1.models.ActionRequest;
-import com.madan.M360_Task_1.models.Role;
-import com.madan.M360_Task_1.models.User;
 import com.madan.M360_Task_1.repository.ActionRequestRepository;
-import com.madan.M360_Task_1.repository.RoleRepository;
-import com.madan.M360_Task_1.repository.UserRepository;
+import com.madan.M360_Task_1.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,17 +17,15 @@ import java.util.UUID;
 public class ActionRequestService {
 
     private final ActionRequestRepository actionRequestRepository;
-    private final UserRepository userRepository;
-    private final RoleRepository roleRepository;
+    private final UserService userService; // Only Service needed for user logic
     private final ObjectMapper objectMapper;
 
+    // Remove UserRepo and RoleRepo from constructor
     public ActionRequestService(ActionRequestRepository actionRequestRepository,
-                                UserRepository userRepository,
-                                RoleRepository roleRepository,
+                                UserService userService,
                                 ObjectMapper objectMapper) {
         this.actionRequestRepository = actionRequestRepository;
-        this.userRepository = userRepository;
-        this.roleRepository = roleRepository;
+        this.userService = userService;
         this.objectMapper = objectMapper;
     }
 
@@ -134,45 +129,34 @@ public class ActionRequestService {
     }
 
     private String executeDeleteUser(UUID userId) {
-        if (!userRepository.existsById(userId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found: " + userId);
+        try {
+            userService.deleteUser(userId); // Use Service
+            return "Deleted user: " + userId;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
         }
-        userRepository.deleteById(userId);
-        return "Deleted user: " + userId;
     }
 
     private String executeAssignRole(UUID userId, String roleName) {
-        if (roleName == null || roleName.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "roleName is required");
+        if (roleName == null || roleName.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Role required");
+
+        try {
+            userService.addRoleToUser(userId, roleName); // Use Service
+            return "Assigned role " + roleName + " to user " + userId;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
-
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found: " + userId));
-
-        Role role = roleRepository.findByRoleNameIgnoreCase(roleName)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Role not found: " + roleName));
-
-        user.getRoles().add(role);
-        userRepository.save(user);
-
-        return "Assigned role " + roleName.toUpperCase() + " to user " + userId;
     }
 
     private String executeRemoveRole(UUID userId, String roleName) {
-        if (roleName == null || roleName.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "roleName is required");
+        if (roleName == null || roleName.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Role required");
+
+        try {
+            userService.removeRoleFromUser(userId, roleName); // Use Service
+            return "Removed role " + roleName + " from user " + userId;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
-
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found: " + userId));
-
-        Role role = roleRepository.findByRoleNameIgnoreCase(roleName)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Role not found: " + roleName));
-
-        user.getRoles().remove(role);
-        userRepository.save(user);
-
-        return "Removed role " + roleName.toUpperCase() + " from user " + userId;
     }
 
 

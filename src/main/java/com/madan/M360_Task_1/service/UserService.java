@@ -13,6 +13,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -28,6 +29,8 @@ public class UserService {
     private UserRepository userRepository;
     @Autowired
     private RoleRepository roleRepository;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
 //    public UserService(UserRepository userRepo) {
 //        this.userRepo = userRepo;
@@ -179,7 +182,55 @@ public class UserService {
         return userRepository.save(user);
     }
 
-    // ====== NEW: PAGINATION METHODS ======
+    // 1. Create User with specific role (for UserCreateTools)
+    public User createUserWithRole(String username, String name, String email, String contact, String roleName) {
+
+        if (userRepository.existsByUsername(username)) {
+            throw new RuntimeException("Username already exists");
+        }
+        if (userRepository.existsByEmail(email)) {
+            throw new RuntimeException("Email already exists");
+        }
+
+        User user = new User();
+        user.setUsername(username);
+        user.setName(name);
+        user.setEmail(email);
+        user.setContactNum(contact);
+        user.setPassword(passwordEncoder.encode("default123")); // Default password
+
+        String targetRole = (roleName == null || roleName.isBlank()) ? "USER" : roleName.trim().toUpperCase();
+        Role role = roleRepository.findByRoleNameIgnoreCase(targetRole)
+                .orElseThrow(() -> new RuntimeException("Role not found: " + targetRole));
+
+        user.setRoles(Set.of(role));
+
+        return userRepository.save(user);
+    }
+
+    // 2. Add Role (for ActionRequestService)
+    public void addRoleToUser(UUID userId, String roleName) {
+        User user = getUserById(userId); // Reuses existing method
+        Role role = roleRepository.findByRoleNameIgnoreCase(roleName)
+                .orElseThrow(() -> new RuntimeException("Role not found: " + roleName));
+
+        user.getRoles().add(role);
+        userRepository.save(user);
+    }
+
+    // 3. Remove Role (for ActionRequestService)
+    public void removeRoleFromUser(UUID userId, String roleName) {
+        User user = getUserById(userId);
+
+        // Safe remove using name (avoids proxy issues)
+        boolean removed = user.getRoles().removeIf(r -> r.getRoleName().equalsIgnoreCase(roleName));
+
+        if (!removed) {
+            throw new RuntimeException("User does not have role: " + roleName);
+        }
+        userRepository.save(user);
+    }
+
 
     // Simple pagination
     public Page<User> getUsersWithPagination(int page, int size) {
