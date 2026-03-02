@@ -1,22 +1,28 @@
 package com.madan.M360_Task_1.controllers;
 
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.Message;
 import com.madan.M360_Task_1.ai.AdminOrchestratorAgent;
 import com.madan.M360_Task_1.ai.ReadOnlyOrchestratorAgent;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/ai")
 public class AiController {
 
+    private final ChatMemory chatMemory;
     private final ReadOnlyOrchestratorAgent readOnlyOrchestratorAgent;
     private final AdminOrchestratorAgent adminOrchestratorAgent;
 
     public AiController(ReadOnlyOrchestratorAgent readOnlyOrchestratorAgent,
-                        AdminOrchestratorAgent adminOrchestratorAgent) {
+                        AdminOrchestratorAgent adminOrchestratorAgent,
+                        ChatMemory chatMemory) {
         this.readOnlyOrchestratorAgent = readOnlyOrchestratorAgent;
         this.adminOrchestratorAgent = adminOrchestratorAgent;
+        this.chatMemory = chatMemory;
     }
 
     // USER + ADMIN (read-only)
@@ -33,5 +39,10 @@ public class AiController {
         String message = request.get("message");
         String chatId = request.getOrDefault("chatId", "admin-chat-default");
         return adminOrchestratorAgent.orchestrate(message, chatId);
+    }
+
+    @GetMapping("/history")
+    public List<Message> getHistory(@RequestParam String chatId) {
+        return chatMemory.get(chatId);
     }
 }
