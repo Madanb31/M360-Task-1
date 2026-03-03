@@ -21,7 +21,13 @@ public class DocumentService {
         TikaDocumentReader reader = new TikaDocumentReader(resource);
         List<Document> documents = reader.get();
 
-        TokenTextSplitter splitter = new TokenTextSplitter(); // Splits long text
+        TokenTextSplitter splitter = new TokenTextSplitter(
+                400,   // defaultChunkSize (Keep < 512 for local embedding!)
+                100,   // minChunkSizeChars (Don't keep tiny chunks)
+                5,     // minChunkSizeToMerge
+                10000, // maxNumChunks
+                true   // keepSeparator
+        ); // Splits long text
         List<Document> splitDocuments = splitter.apply(documents);
 
         vectorStore.add(splitDocuments);
