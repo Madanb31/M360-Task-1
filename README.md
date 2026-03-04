@@ -1,38 +1,71 @@
+<div align="center">
+
 # 🤖 Agentic AI User Management Platform
 
-> A governed, multi-agent AI system built with **Spring Boot** and **Spring AI** — automating user management operations with security, auditability, and human oversight at its core.
+**A production-grade, governed Multi-Agent AI System** built with Spring Boot & Spring AI.  
+Automate user management with security, auditability, and human oversight built in.
+
+[![Java](https://img.shields.io/badge/Java-21-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/21/)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5.x-6DB33F?style=for-the-badge&logo=spring&logoColor=white)](https://spring.io/projects/spring-boot)
+[![Spring AI](https://img.shields.io/badge/Spring_AI-1.1.2-6DB33F?style=for-the-badge&logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
+[![Gemini](https://img.shields.io/badge/Gemini_2.0_Flash-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev/)
+
+</div>
 
 ---
 
-## 📐 Architecture Overview
+## 📋 Table of Contents
 
-The platform follows a **Multi-Agent Orchestration** pattern where specialized agents handle distinct domains, coordinated by role-specific orchestrators.
+- [Overview](#-overview)
+- [Architecture](#-architecture)
+- [The Agents](#-the-agents)
+- [Security & Governance](#-security--governance)
+- [Tech Stack](#-tech-stack)
+- [Key Features](#-key-features)
+- [Getting Started](#-getting-started)
+- [Roadmap](#-roadmap)
+
+---
+
+## 🌟 Overview
+
+This platform implements a **Multi-Agent Orchestration** pattern where specialized AI agents handle distinct domains — coordinated by role-specific orchestrators. Key pillars:
+
+| 🔐 RBAC | ✋ HITL | 📚 RAG | 📜 Audit |
+|:---:|:---:|:---:|:---:|
+| Role-Based Access Control | Human-in-the-Loop Governance | Chat with Documents | Full Interaction Logging |
+
+---
+
+## 🏗️ Architecture
 
 ```
-                        ┌──────────────────────────────────────┐
-                        │           Spring Boot API             │
-                        │  /ai/orchestrate  /ai/admin/orchestrate│
-                        └──────────┬──────────────┬────────────┘
-                                   │              │
-               ┌───────────────────▼──┐    ┌──────▼───────────────────┐
-               │  ReadOnlyOrchestrator │    │   AdminOrchestrator       │
-               │     (USER role)       │    │   (ADMIN role)            │
-               │  ─ LLM routing only ─ │    │  ─ LLM + Deterministic ─ │
-               └───────────┬──────────┘    └──────┬────────────────────┘
-                           │                      │
-               ┌───────────▼──────────┐  ┌────────▼───────────────────┐
-               │   UserAnalysisAgent  │  │    UserManagementAgent      │
-               │      📖 Reader        │  │       ✍️  Writer             │
-               │  userSearchTool      │  │  createUserTool             │
-               │  listAllUsersTool    │  │  deleteUserTool             │
-               │  READ-ONLY           │  │  assignRoleTool             │
-               └──────────────────────┘  └─────────────┬──────────────┘
-                                                        │
-                                            ┌───────────▼────────────┐
-                                            │     HITL Gate ✋         │
-                                            │  Approval Required for  │
-                                            │  Delete / Promote ops   │
-                                            └────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Spring Boot API                          │
+│          /ai/orchestrate        /ai/admin/orchestrate           │
+└──────────────────┬──────────────────────────┬───────────────────┘
+                   │                          │
+       ┌───────────▼───────────┐  ┌───────────▼──────────────────┐
+       │  ReadOnlyOrchestrator │  │      AdminOrchestrator        │
+       │    (USER role) 👤     │  │      (ADMIN role) 👑          │
+       │   LLM routing only    │  │   LLM  +  Deterministic       │
+       └───────────┬───────────┘  └──────┬───────────────────────┘
+                   │                     │
+       ┌───────────▼───────────┐  ┌──────▼────────────────────────┐
+       │   UserAnalysisAgent   │  │     UserManagementAgent        │
+       │      📖  Reader        │  │         ✍️  Writer              │
+       │                       │  │                                │
+       │  • userSearchTool     │  │  • createUserTool              │
+       │  • listAllUsersTool   │  │  • deleteUserTool              │
+       │  READ-ONLY            │  │  • assignRoleTool              │
+       └───────────────────────┘  └──────────────┬────────────────┘
+                                                  │
+                                      ┌───────────▼────────────┐
+                                      │      HITL Gate  ✋       │
+                                      │  PENDING → Review →    │
+                                      │  Approve / Reject      │
+                                      └────────────────────────┘
 ```
 
 ---
@@ -45,8 +78,8 @@ The platform follows a **Multi-Agent Orchestration** pattern where specialized a
 |---|---|
 | **Role** | Analyzes user profiles, searches the database, checks data completeness |
 | **Tools** | `userSearchTool`, `listAllUsersTool` (deterministic DB lookups) |
-| **Capability** | **100% Read-Only** — cannot modify any data |
-| **Prompting** | Chain-of-Thought (CoT) to prevent hallucinations & produce structured JSON |
+| **Capability** | **100% Read-Only** — architecturally cannot modify data |
+| **Prompting** | Chain-of-Thought (CoT) to prevent hallucinations & produce strict JSON output |
 
 ### `UserManagementAgent` — The Writer ✍️
 
@@ -55,18 +88,17 @@ The platform follows a **Multi-Agent Orchestration** pattern where specialized a
 | **Role** | Handles sensitive operations: Create, Delete, Promote, Demote |
 | **Tools** | `createUserTool`, `deleteUserTool`, `assignRoleTool` |
 | **Access** | **Admin Orchestrator only** — never exposed to USER role |
+| **Governance** | Every destructive action gated behind HITL approval |
 
----
+### The Orchestrators — The Bosses 👔
 
-## 👔 The Orchestrators
+**`ReadOnlyOrchestratorAgent`** `(USER role)`
+- Wired with read tools only — write actions are **architecturally impossible**
+- All routing via LLM with CoT reasoning
 
-### `ReadOnlyOrchestratorAgent` (USER role)
-- Wired with **read tools only** — write actions are architecturally impossible
-- All requests routed through LLM with CoT reasoning
-
-### `AdminOrchestratorAgent` (ADMIN role)
-- Wired with **read + write tools**
-- **Deterministic Routing**: exact commands like `"delete user"` or `"list admins"` bypass the LLM entirely for maximum reliability
+**`AdminOrchestratorAgent`** `(ADMIN role)`
+- Wired with read + write tools
+- **Deterministic Routing:** exact commands like `"delete user"` or `"list admins"` bypass the LLM entirely for guaranteed reliability
 
 ---
 
@@ -74,53 +106,79 @@ The platform follows a **Multi-Agent Orchestration** pattern where specialized a
 
 ### ✋ Human-in-the-Loop (HITL)
 
-Risky operations are **never executed immediately** by the AI.
+Risky operations are **never executed immediately.** Every destructive action goes through a mandatory approval gate.
 
 ```
-AI decides action needed
-        │
-        ▼
-Create Approval Request (Status: PENDING)
-        │
-        ▼
-Admin reviews via UI  ──[Reject]──► Action Cancelled
-        │
-     [Approve]
-        │
-        ▼
-Backend executes deterministically
+  AI determines action needed
+           │
+           ▼
+  ┌─────────────────────┐
+  │  Create Approval    │  ◄── Status: PENDING
+  │  Request in DB      │
+  └────────┬────────────┘
+           │
+           ▼
+  Admin reviews at /approvals
+           │
+     ┌─────┴──────┐
+     │            │
+  [Approve]    [Reject]
+     │            │
+     ▼            ▼
+  Execute      Cancelled
+  Action       (no-op)
 ```
 
-**HITL-gated operations:**
-- 🗑️ Delete User
-- 🔑 Assign Admin Role
+**HITL-gated operations:** 🗑️ Delete User &nbsp;|&nbsp; 🔑 Assign Admin Role
 
 ---
 
-### 🔐 Role-Based Access Control (RBAC)
+### 📚 Retrieval Augmented Generation (RAG)
+
+**Feature:** *Chat with your documents* — upload policy PDFs and query them in natural language.
+
+```
+Upload PDF  ──►  Split Chunks  ──►  Generate Embeddings  ──►  Store in pgvector
+                                     (Local ONNX Model)
+                                                                      │
+User Query  ──►  Embed Query   ──────────────────────────►  Retrieve & Answer
+```
+
+> **Stack:** pgvector (PostgreSQL) + Spring AI + Apache Tika + Local ONNX Models
+
+---
+
+### 🔐 Role-Based Access Control
+
+**Auth:** Stateless JWT (HS256) with BCrypt password hashing.
 
 | Endpoint | USER | ADMIN |
 |---|:---:|:---:|
 | `POST /ai/orchestrate` | ✅ | ✅ |
 | `POST /ai/admin/orchestrate` | ❌ | ✅ |
-| `GET/POST /hitl/**` | ❌ | ✅ |
-
-**Auth:** Stateless JWT (HS256) with BCrypt password hashing.
+| `GET /hitl/**` | ❌ | ✅ |
+| `POST /hitl/actions/{id}/approve` | ❌ | ✅ |
 
 ---
 
 ### 📜 Audit Trail
 
-Every AI interaction is logged to `agent_audit_logs`:
+Every AI interaction is persisted to `agent_audit_logs`:
 
-```
-┌─────────────────┬──────────────┬──────────────┬─────────────┐
-│   Query         │  Response    │  Exec Time   │ Token Usage │
-├─────────────────┼──────────────┼──────────────┼─────────────┤
-│ "list all users"│  {...}       │  142ms       │  312 tokens │
-│ "delete alice"  │  HITL_PEND  │  98ms        │  201 tokens │
-└─────────────────┴──────────────┴──────────────┴─────────────┘
-```
+| Field | Example |
+|---|---|
+| Query | `"list all users"` |
+| Response | `{ "users": [...] }` |
+| Execution Time | `142ms` |
+| Token Usage | `312 tokens` |
+
+Every management action (Create / Delete) is also independently tracked.
+
+---
+
+### 🗄️ Database Version Control
+
+**Liquibase** manages all schema migrations — tables are created automatically on first run, ensuring production-safe deployments.
 
 ---
 
@@ -128,10 +186,12 @@ Every AI interaction is logged to `agent_audit_logs`:
 
 | Layer | Technology |
 |---|---|
-| **Backend** | Java 21, Spring Boot 3.x |
+| **Backend** | Java 21, Spring Boot 3.5.x |
 | **AI Framework** | Spring AI 1.1.2 |
 | **LLM** | Google Gemini 2.0 Flash (Google AI Studio) |
-| **Database** | PostgreSQL |
+| **Embeddings** | Local ONNX Models (`spring-ai-transformers`) |
+| **Database** | PostgreSQL + pgvector extension |
+| **Migrations** | Liquibase |
 | **Security** | Spring Security, JWT (jjwt), BCrypt |
 | **Frontend** | React.js, Bootstrap |
 | **Build** | Maven |
@@ -142,34 +202,57 @@ Every AI interaction is logged to `agent_audit_logs`:
 
 | Feature | Description |
 |---|---|
-| 🔧 **Function Calling** | AI connects to real PostgreSQL database via Spring AI tools |
-| 📊 **Structured Output** | AI returns strict Java Records (JSON) — no free-form text |
+| 🔧 **Function Calling** | AI connects to real PostgreSQL data via Spring AI tools |
+| 📊 **Structured Output** | Returns strict Java Records (JSON) — no free-form text |
 | 🧠 **Chat Memory** | Context-aware sessions — *"Analyze him"* resolves to previous subject |
 | 🎯 **Hallucination Control** | Deterministic routing for critical queries bypasses LLM generation |
 | 🔀 **Dual-Client Pattern** | Separate `ChatClient` for tool execution vs. JSON formatting |
+| 📚 **RAG** | Upload & chat with PDFs — policy documents, employee handbooks, etc. |
 
 ---
 
 ## 🚀 Getting Started
 
-### Backend
+### Prerequisites
+
+- Java 21+
+- Maven
+- PostgreSQL with `pgvector` extension
+- Google AI Studio API key
+
+### 1. Start PostgreSQL with pgvector
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-username/agentic-user-management.git
-cd agentic-user-management
+docker run -d \
+  -p 5432:5432 \
+  -e POSTGRES_PASSWORD=yourpassword \
+  -e POSTGRES_DB=agenticdb \
+  ankane/pgvector
+```
 
-# 2. Set environment variables in application.properties
+### 2. Configure the Backend
+
+```properties
+# application.properties
 spring.ai.google.genai.api-key=YOUR_GEMINI_KEY
 jwt.secret=YOUR_JWT_SECRET
+spring.datasource.url=jdbc:postgresql://localhost:5432/agenticdb
+spring.datasource.password=yourpassword
+```
 
-# 3. Run
+### 3. Run the Backend
+
+```bash
+git clone https://github.com/your-username/agentic-user-management.git
+cd agentic-user-management
 mvn spring-boot:run
 ```
 
-📖 **Swagger UI:** [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
+> ✅ Liquibase runs automatically and creates all tables.  
+> 🔑 Default admin created: `admin` / `admin123`  
+> 📖 Swagger UI: [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
 
-### Frontend
+### 4. Run the Frontend
 
 ```bash
 cd frontend
@@ -177,23 +260,23 @@ npm install
 npm start
 ```
 
-🌐 **App:** [http://localhost:3000](http://localhost:3000)
+> 🌐 App available at [http://localhost:3000](http://localhost:3000)
 
 ---
 
 ## 🔮 Roadmap
 
-- [ ] **RAG Integration** — Document search with `pgvector` for policy lookups
-- [ ] **Observability Dashboard** — Real-time token usage & agent latency metrics
+- [ ] **Advanced Observability** — Dashboard for token usage & agent latency metrics
+- [ ] **Multi-Modal AI** — Support image inputs for user profile analysis
+- [ ] **Email Agents** — AI agent sends notifications on user creation / deletion
 - [ ] **Multi-tenant Support** — Isolated agent contexts per organization
-- [ ] **Webhook Notifications** — HITL approval requests via Slack / email
 
 ---
 
-## 🤝 Contributing
+<div align="center">
 
-Contributions, issues, and feature requests are welcome! Feel free to open an issue or submit a pull request.
+Built with ☕ Java &nbsp;|&nbsp; 🤖 Spring AI &nbsp;|&nbsp; 🛡️ Responsible AI Governance
 
----
+*Contributions, issues, and feature requests are welcome!*
 
-<p align="center">Built with ☕ Java, 🤖 Spring AI, and a commitment to <strong>responsible AI governance</strong></p>
+</div>
