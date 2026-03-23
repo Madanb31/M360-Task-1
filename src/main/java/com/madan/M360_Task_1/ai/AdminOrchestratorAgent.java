@@ -26,45 +26,52 @@ import java.util.regex.Pattern;
 public class AdminOrchestratorAgent {
 
     private final ChatClient chatClient;
+    private final ChatClient simpleChatClient;
     private final ChatMemory chatMemory;
     private final AgentAuditRepository auditRepository;
     private final UserTools userTools;
     private final ActionRequestService actionRequestService;
 
     private static final Pattern UUID_PATTERN = Pattern.compile(
-            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-    );
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
     public AdminOrchestratorAgent(ChatClient.Builder builder,
-                                  ReadOnlyOrchestratorTools readOnlyTools,
-                                  UserTools userTools,
-                                  UserCreateTools userCreateTools,
-                                  RagTools ragTools,
-                                  ChatMemory chatMemory,
-                                  AgentAuditRepository auditRepository,
-                                  ActionRequestService actionRequestService) {
+            ReadOnlyOrchestratorTools readOnlyTools,
+            UserTools userTools,
+            UserCreateTools userCreateTools,
+            RagTools ragTools,
+            ChatMemory chatMemory,
+            AgentAuditRepository auditRepository,
+            ActionRequestService actionRequestService) {
 
         this.chatMemory = chatMemory;
         this.auditRepository = auditRepository;
         this.actionRequestService = actionRequestService;
         this.userTools = userTools;
 
-        this.chatClient = builder
-                .defaultSystem("""
-                    You are the ADMIN Orchestrator Agent.
+        this.simpleChatClient = builder.build();
 
-                    Governance:
-                    - For read tasks, use deterministic tools (UserTools) or analyzeTool.
-                    - For creating users, use createUserNowTool.
-                    - For delete/role changes, the backend will create approval requests (HITL).
-                    - Never invent IDs.
-                    """)
+        this.chatClient = builder
+                .defaultSystem(
+                        """
+                                You are the ADMIN Orchestrator Agent.
+
+                                Governance:
+                                - For read tasks, use deterministic tools (UserTools) or analyzeTool.
+                                - For creating users, use createUserNowTool.
+                                - For delete/role changes, the backend will create approval requests (HITL).
+                                - Never invent IDs.
+                                """)
                 // NOTE: No HITL tool needed now; we create requests deterministically in Java.
                 .defaultTools(readOnlyTools, userTools, userCreateTools, ragTools)
                 .build();
     }
 
     public String orchestrate(String userMessage, String chatId) {
+        return orchestrateWithThinking(userMessage, chatId).answer();
+    }
+
+    public ThinkingResponse orchestrateWithThinking(String userMessage, String chatId) {
         long startTime = System.currentTimeMillis();
 
         List<Message> history = chatMemory.get(chatId);
@@ -75,7 +82,7 @@ public class AdminOrchestratorAgent {
             chatMemory.add(chatId, List.of(new AssistantMessage(deterministic)));
             saveLog("AdminOrchestratorAgent", userMessage, deterministic, chatId,
                     System.currentTimeMillis() - startTime, 0);
-            return deterministic;
+            return new ThinkingResponse(deterministic, null);
         }
 
         // 1) Deterministic HITL routing for risky actions
@@ -89,7 +96,7 @@ public class AdminOrchestratorAgent {
             saveLog("AdminOrchestratorAgent", userMessage, hitlResponse, chatId,
                     System.currentTimeMillis() - startTime, 0);
 
-            return hitlResponse;
+            return new ThinkingResponse(hitlResponse, null);
         }
 
         // 2) Normal LLM orchestration for non-risky actions
@@ -99,7 +106,19 @@ public class AdminOrchestratorAgent {
                 .call()
                 .chatResponse();
 
-        String content = response.getResult().getOutput().getText();
+        AssistantMessage assistantMessage = response.getResult().getOutput();
+        String content = assistantMessage.getText();
+
+        String thinking = null;
+        try {
+            thinking = simpleChatClient.prompt()
+                    .user("In 2-3 sentences, what information was found and used to answer this question? Question: " + userMessage + " Answer: " + content)
+                    .call()
+                    .content();
+        } catch (Exception e) {
+            // Fallback if quota exceeded or any error
+            thinking = "Searching company knowledge base and documents to find relevant information for: \"" + userMessage + "\"";
+        }
 
         chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
         chatMemory.add(chatId, List.of(new AssistantMessage(content)));
@@ -112,15 +131,16 @@ public class AdminOrchestratorAgent {
         saveLog("AdminOrchestratorAgent", userMessage, content, chatId,
                 System.currentTimeMillis() - startTime, tokens);
 
-        return content;
+        return new ThinkingResponse(content, thinking);
     }
 
     private String handleDeterministicRead(String msg) {
-        if (msg == null) return null;
+        if (msg == null)
+            return null;
 
         String m = msg.trim().toLowerCase();
 
-        //  List all users 
+        // List all users
         if (m.equals("list all users")
                 || m.equals("list users")
                 || m.equals("show all users")
@@ -130,7 +150,7 @@ public class AdminOrchestratorAgent {
             return userTools.listAllUsersDetailedTool();
         }
 
-        //  List all admins 
+        // List all admins
         if (m.equals("list all admins")
                 || m.equals("list admins")
                 || m.equals("show admins")
@@ -138,7 +158,7 @@ public class AdminOrchestratorAgent {
             return userTools.listUsersByRoleTool("ADMIN");
         }
 
-        //  Profile completeness report for all users 
+        // Profile completeness report for all users
         if ((m.contains("profile completeness") && m.contains("all"))
                 || (m.contains("analysis report") && m.contains("all"))
                 || m.contains("analyze all users")
@@ -147,20 +167,21 @@ public class AdminOrchestratorAgent {
             return userTools.analyzeAllUsersProfilesTool();
         }
 
-        //  Find/Search user <name> 
+        // Find/Search user <name>
         if (m.startsWith("find user ")) {
             String name = msg.substring("find user ".length()).trim();
-            if (!name.isBlank()) return userTools.findUsersByNameTool(name);
+            if (!name.isBlank())
+                return userTools.findUsersByNameTool(name);
         }
 
         if (m.startsWith("search user ")) {
             String name = msg.substring("search user ".length()).trim();
-            if (!name.isBlank()) return userTools.findUsersByNameTool(name);
+            if (!name.isBlank())
+                return userTools.findUsersByNameTool(name);
         }
 
         return null;
     }
-
 
     private String tryHandleHitlDeterministically(String userMessage, List<Message> history) {
         String msg = userMessage.toLowerCase();
@@ -218,7 +239,8 @@ public class AdminOrchestratorAgent {
         for (int i = history.size() - 1; i >= 0; i--) {
             String text = history.get(i).getText();
             String uuid = extractUuid(text);
-            if (uuid != null) return uuid;
+            if (uuid != null)
+                return uuid;
         }
         return null;
     }

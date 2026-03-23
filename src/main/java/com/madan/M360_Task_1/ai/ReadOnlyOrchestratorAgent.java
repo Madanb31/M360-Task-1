@@ -20,6 +20,7 @@ import java.util.List;
 public class ReadOnlyOrchestratorAgent {
 
     private final ChatClient chatClient;
+    private final ChatClient simpleChatClient;
     private final ChatMemory chatMemory;
     private final AgentAuditRepository auditRepository;
 
@@ -36,6 +37,8 @@ public class ReadOnlyOrchestratorAgent {
         this.auditRepository = auditRepository;
         this.userTools = userTools;
 
+        this.simpleChatClient = builder.build();
+
         this.chatClient = builder
                 .defaultSystem("""
                     You are the Read-Only Orchestrator Agent.
@@ -46,6 +49,10 @@ public class ReadOnlyOrchestratorAgent {
     }
 
     public String orchestrate(String userMessage, String chatId) {
+        return orchestrateWithThinking(userMessage, chatId).answer();
+    }
+
+    public ThinkingResponse orchestrateWithThinking(String userMessage, String chatId) {
         long startTime = System.currentTimeMillis();
 
         List<Message> history = chatMemory.get(chatId);
@@ -61,9 +68,8 @@ public class ReadOnlyOrchestratorAgent {
             saveLog("ReadOnlyOrchestratorAgent", userMessage, deterministic, chatId,
                     System.currentTimeMillis() - startTime, 0);
 
-            return deterministic;
+            return new ThinkingResponse(deterministic, null);
         }
-
 
         ChatResponse response = chatClient.prompt()
                 .messages(history)
@@ -71,7 +77,19 @@ public class ReadOnlyOrchestratorAgent {
                 .call()
                 .chatResponse();
 
-        String content = response.getResult().getOutput().getText();
+        AssistantMessage assistantMessage = response.getResult().getOutput();
+        String content = assistantMessage.getText();
+
+        String thinking = null;
+        try {
+            thinking = simpleChatClient.prompt()
+                    .user("In 2-3 sentences, what information was found and used to answer this question? Question: " + userMessage + " Answer: " + content)
+                    .call()
+                    .content();
+        } catch (Exception e) {
+            // Fallback if quota exceeded or any error
+            thinking = "Searching company knowledge base and documents to find relevant information for: \"" + userMessage + "\"";
+        }
 
         chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
         chatMemory.add(chatId, List.of(new AssistantMessage(content)));
@@ -84,7 +102,7 @@ public class ReadOnlyOrchestratorAgent {
         saveLog("ReadOnlyOrchestratorAgent", userMessage, content, chatId,
                 System.currentTimeMillis() - startTime, tokens);
 
-        return content;
+        return new ThinkingResponse(content, thinking);
     }
 
     private String handleDeterministicRead(String msg) {
