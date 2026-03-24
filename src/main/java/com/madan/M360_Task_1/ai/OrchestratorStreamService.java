@@ -12,6 +12,8 @@ import java.util.concurrent.Executors;
 @Service
 public class OrchestratorStreamService {
 
+    public static final ThreadLocal<SseEmitter> CURRENT_EMITTER = new ThreadLocal<>();
+
     private final ReadOnlyOrchestratorAgent readOnlyOrchestratorAgent;
     private final AdminOrchestratorAgent adminOrchestratorAgent;
     private final ExecutorService executor = Executors.newCachedThreadPool();
@@ -30,6 +32,7 @@ public class OrchestratorStreamService {
         emitter.onCompletion(() -> System.out.println("SSE completed"));
 
         executor.execute(() -> {
+            CURRENT_EMITTER.set(emitter);
             try {
                 ThinkingResponse response;
                 if (isAdmin) {
@@ -57,6 +60,8 @@ public class OrchestratorStreamService {
 
             } catch (Exception e) {
                 emitter.completeWithError(e);
+            } finally {
+                CURRENT_EMITTER.remove();
             }
         });
 

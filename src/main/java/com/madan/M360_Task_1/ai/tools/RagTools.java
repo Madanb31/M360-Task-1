@@ -24,7 +24,7 @@ public class RagTools {
         List<Document> results = vectorStore.similaritySearch(
                 SearchRequest.builder()
                         .query(query)
-                        .topK(3)           // Top 3 results
+                        .topK(4)           // Top 5 results
                         .similarityThreshold(0.3) // Filter weak matches
                         .build()
         );

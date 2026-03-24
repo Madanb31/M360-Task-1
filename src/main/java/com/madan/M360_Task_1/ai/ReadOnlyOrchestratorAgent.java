@@ -20,7 +20,6 @@ import java.util.List;
 public class ReadOnlyOrchestratorAgent {
 
     private final ChatClient chatClient;
-    private final ChatClient simpleChatClient;
     private final ChatMemory chatMemory;
     private final AgentAuditRepository auditRepository;
 
@@ -36,8 +35,6 @@ public class ReadOnlyOrchestratorAgent {
         this.chatMemory = chatMemory;
         this.auditRepository = auditRepository;
         this.userTools = userTools;
-
-        this.simpleChatClient = builder.build();
 
         this.chatClient = builder
                 .defaultSystem("""
@@ -80,16 +77,7 @@ public class ReadOnlyOrchestratorAgent {
         AssistantMessage assistantMessage = response.getResult().getOutput();
         String content = assistantMessage.getText();
 
-        String thinking = null;
-        try {
-            thinking = simpleChatClient.prompt()
-                    .user("In 2-3 sentences, what information was found and used to answer this question? Question: " + userMessage + " Answer: " + content)
-                    .call()
-                    .content();
-        } catch (Exception e) {
-            // Fallback if quota exceeded or any error
-            thinking = "Searching company knowledge base and documents to find relevant information for: \"" + userMessage + "\"";
-        }
+        String thinking = "Searching company knowledge base and documents to find relevant information for: \"" + userMessage + "\"";
 
         chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
         chatMemory.add(chatId, List.of(new AssistantMessage(content)));

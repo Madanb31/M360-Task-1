@@ -26,7 +26,6 @@ import java.util.regex.Pattern;
 public class AdminOrchestratorAgent {
 
     private final ChatClient chatClient;
-    private final ChatClient simpleChatClient;
     private final ChatMemory chatMemory;
     private final AgentAuditRepository auditRepository;
     private final UserTools userTools;
@@ -48,8 +47,6 @@ public class AdminOrchestratorAgent {
         this.auditRepository = auditRepository;
         this.actionRequestService = actionRequestService;
         this.userTools = userTools;
-
-        this.simpleChatClient = builder.build();
 
         this.chatClient = builder
                 .defaultSystem(
@@ -109,16 +106,7 @@ public class AdminOrchestratorAgent {
         AssistantMessage assistantMessage = response.getResult().getOutput();
         String content = assistantMessage.getText();
 
-        String thinking = null;
-        try {
-            thinking = simpleChatClient.prompt()
-                    .user("In 2-3 sentences, what information was found and used to answer this question? Question: " + userMessage + " Answer: " + content)
-                    .call()
-                    .content();
-        } catch (Exception e) {
-            // Fallback if quota exceeded or any error
-            thinking = "Searching company knowledge base and documents to find relevant information for: \"" + userMessage + "\"";
-        }
+        String thinking = "Searching company knowledge base and documents to find relevant information for: \"" + userMessage + "\"";
 
         chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
         chatMemory.add(chatId, List.of(new AssistantMessage(content)));
