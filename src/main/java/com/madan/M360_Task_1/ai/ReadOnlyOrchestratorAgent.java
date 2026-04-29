@@ -40,16 +40,26 @@ public class ReadOnlyOrchestratorAgent {
                 .defaultSystem("""
                     You are the Read-Only Orchestrator Agent.
                     You are strictly READ-ONLY. You MUST NOT modify data.
+
+                    You are an AI assistant with the ability to control the user interface directly. You have access to the following UI control tools — use them immediately when the user asks:
+                    - toggleUiMode(mode) — call this when the user asks to switch/toggle/change the theme, dark mode, light mode, or UI appearance. Pass "dark" or "light" as the mode.
+                    - goToPage(pageId) — call this when the user asks to navigate, go to, or open a page. Valid pageIds are: users, roles, approvals, knowledge, chat, dashboard.
+                    - switchBackgroundToColour(colourCode) — change the background colour of the UI.
+                    - openPageWithColour(pageName, colourCode) — navigate to a page AND change background colour at the same time.
+
+                    When a tool returns PENDING: ... — tell the user the action is ready and they need to confirm it in the chat UI
+                    When a tool returns ERROR: ... — apologize and explain exactly what went wrong using the error message
+                    Never say you cannot perform UI actions — you have the tools to do it
                     """)
                 .defaultTools(readOnlyTools, userTools,ragTools)
                 .build();
     }
 
     public String orchestrate(String userMessage, String chatId) {
-        return orchestrateWithThinking(userMessage, chatId).answer();
+        return orchestrateWithThinking(userMessage, chatId, null).answer();
     }
 
-    public ThinkingResponse orchestrateWithThinking(String userMessage, String chatId) {
+    public ThinkingResponse orchestrateWithThinking(String userMessage, String chatId, List<AgUiParameters.FrontendToolDefinition> frontendTools) {
         long startTime = System.currentTimeMillis();
 
         List<Message> history = chatMemory.get(chatId);
@@ -68,9 +78,23 @@ public class ReadOnlyOrchestratorAgent {
             return new ThinkingResponse(deterministic, null);
         }
 
+        String fullUserMessage = userMessage;
+        try {
+            if (frontendTools != null && !frontendTools.isEmpty()) {
+                String frontendToolsPrompt = """
+                    You also have access to these UI control tools that execute in the frontend:
+                    %s
+                    When you decide to call one of these tools, output ONLY a JSON block formatted exactly like this:
+                    {"toolCall": "toolName", "arguments": {"arg1": "val1"}}
+                    Do not output any other text.
+                    """.formatted(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(frontendTools));
+                fullUserMessage = userMessage + "\n\n" + frontendToolsPrompt;
+            }
+        } catch (Exception e) {}
+
         ChatResponse response = chatClient.prompt()
                 .messages(history)
-                .user(userMessage)
+                .user(fullUserMessage)
                 .call()
                 .chatResponse();
 
@@ -88,6 +112,58 @@ public class ReadOnlyOrchestratorAgent {
         }
 
         saveLog("ReadOnlyOrchestratorAgent", userMessage, content, chatId,
+                System.currentTimeMillis() - startTime, tokens);
+
+        return new ThinkingResponse(content, thinking);
+    }
+
+    public ThinkingResponse resumeWithHistory(List<Message> history, String chatId, List<AgUiParameters.FrontendToolDefinition> frontendTools) {
+        long startTime = System.currentTimeMillis();
+        
+        try {
+            if (frontendTools != null && !frontendTools.isEmpty() && !history.isEmpty()) {
+                Message lastMessage = history.get(history.size() - 1);
+                if (lastMessage instanceof UserMessage) {
+                    String frontendToolsPrompt = """
+                        You also have access to these UI control tools that execute in the frontend:
+                        %s
+                        When you decide to call one of these tools, output ONLY a JSON block formatted exactly like this:
+                        {"toolCall": "toolName", "arguments": {"arg1": "val1"}}
+                        Do not output any other text.
+                        """.formatted(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(frontendTools));
+                    
+                    String updatedContent = lastMessage.getText() + "\n\n" + frontendToolsPrompt;
+                    history.set(history.size() - 1, new UserMessage(updatedContent));
+                }
+            }
+        } catch (Exception e) {}
+
+        ChatResponse response;
+        try {
+            response = chatClient.prompt()
+                    .messages(history)
+                    .call()
+                    .chatResponse();
+
+            if (response == null || response.getResult() == null) {
+                return new ThinkingResponse("I've noted your response.", "");
+            }
+        } catch (java.util.NoSuchElementException e) {
+            return new ThinkingResponse("Action noted. Let me know if you need anything else.", "");
+        } catch (Exception e) {
+            return new ThinkingResponse("Action noted. Let me know if you need anything else.", "");
+        }
+        
+        AssistantMessage assistantMessage = response.getResult().getOutput();
+        String content = assistantMessage.getText();
+        String thinking = "Resuming based on frontend tool result...";
+
+        chatMemory.add(chatId, List.of(new AssistantMessage(content)));
+        
+        int tokens = response.getMetadata() != null && response.getMetadata().getUsage() != null ? 
+            response.getMetadata().getUsage().getTotalTokens() : 0;
+            
+        saveLog("ReadOnlyOrchestratorAgent", "Tool Result Resumption", content, chatId,
                 System.currentTimeMillis() - startTime, tokens);
 
         return new ThinkingResponse(content, thinking);

@@ -66,6 +66,7 @@ public class SecurityConfig {
                         .requestMatchers("/ai/docs/**").hasRole("ADMIN")
                         .requestMatchers("/ai/orchestrate").authenticated()
                         .requestMatchers(HttpMethod.GET, "/ai/docs/chat").authenticated()
+                        .requestMatchers("/ai/tool-result").authenticated()
                         .requestMatchers("/ai/**").permitAll()
                         .anyRequest().authenticated()
                 )
