@@ -22,8 +22,8 @@ public class ReadOnlyOrchestratorAgent {
     private final ChatClient chatClient;
     private final ChatMemory chatMemory;
     private final AgentAuditRepository auditRepository;
-
     private final UserTools userTools;
+    private final RagTools ragTools;
 
     public ReadOnlyOrchestratorAgent(ChatClient.Builder builder,
                                      ReadOnlyOrchestratorTools readOnlyTools,
@@ -35,31 +35,22 @@ public class ReadOnlyOrchestratorAgent {
         this.chatMemory = chatMemory;
         this.auditRepository = auditRepository;
         this.userTools = userTools;
+        this.ragTools = ragTools;
 
         this.chatClient = builder
                 .defaultSystem("""
                     You are the Read-Only Orchestrator Agent.
                     You are strictly READ-ONLY. You MUST NOT modify data.
-
-                    You are an AI assistant with the ability to control the user interface directly. You have access to the following UI control tools — use them immediately when the user asks:
-                    - toggleUiMode(mode) — call this when the user asks to switch/toggle/change the theme, dark mode, light mode, or UI appearance. Pass "dark" or "light" as the mode.
-                    - goToPage(pageId) — call this when the user asks to navigate, go to, or open a page. Valid pageIds are: users, roles, approvals, knowledge, chat, dashboard.
-                    - switchBackgroundToColour(colourCode) — change the background colour of the UI.
-                    - openPageWithColour(pageName, colourCode) — navigate to a page AND change background colour at the same time.
-
-                    When a tool returns PENDING: ... — tell the user the action is ready and they need to confirm it in the chat UI
-                    When a tool returns ERROR: ... — apologize and explain exactly what went wrong using the error message
-                    Never say you cannot perform UI actions — you have the tools to do it
                     """)
                 .defaultTools(readOnlyTools, userTools,ragTools)
                 .build();
     }
 
     public String orchestrate(String userMessage, String chatId) {
-        return orchestrateWithThinking(userMessage, chatId, null).answer();
+        return orchestrateWithThinking(userMessage, chatId, null, true).answer();
     }
 
-    public ThinkingResponse orchestrateWithThinking(String userMessage, String chatId, List<AgUiParameters.FrontendToolDefinition> frontendTools) {
+    public ThinkingResponse orchestrateWithThinking(String userMessage, String chatId, List<AgUiParameters.FrontendToolDefinition> frontendTools, boolean saveToMemory) {
         long startTime = System.currentTimeMillis();
 
         List<Message> history = chatMemory.get(chatId);
@@ -67,9 +58,11 @@ public class ReadOnlyOrchestratorAgent {
 
         String deterministic = handleDeterministicRead(userMessage);
         if (deterministic != null) {
-            // save memory
-            chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
-            chatMemory.add(chatId, List.of(new AssistantMessage(deterministic)));
+            if (saveToMemory) {
+                // save memory
+                chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
+                chatMemory.add(chatId, List.of(new AssistantMessage(deterministic)));
+            }
 
             // audit
             saveLog("ReadOnlyOrchestratorAgent", userMessage, deterministic, chatId,
@@ -82,15 +75,63 @@ public class ReadOnlyOrchestratorAgent {
         try {
             if (frontendTools != null && !frontendTools.isEmpty()) {
                 String frontendToolsPrompt = """
-                    You also have access to these UI control tools that execute in the frontend:
+                    
+                    IMPORTANT - UI CONTROL TOOLS:
+                    You have access to these UI tools that run in the browser:
                     %s
-                    When you decide to call one of these tools, output ONLY a JSON block formatted exactly like this:
-                    {"toolCall": "toolName", "arguments": {"arg1": "val1"}}
-                    Do not output any other text.
+                    
+                    STRICT RULES for using these UI tools:
+                    1. NEVER use native function calling for these tools
+                    2. ALWAYS output them as plain JSON text in this exact format:
+                       {"toolCall": "toolName", "arguments": {"param": "value"}}
+                    3. The JSON must be the very first thing in your response if calling a UI tool
+                    4. Only ONE UI tool call per response
+                    5. After the JSON, you MUST continue with a normal text response to answer
+                       any other part of the user's question — NEVER stop after the JSON alone
+                    6. If the user asks to do a UI action AND asks a question or requests data,
+                       output the JSON first on line 1, then answer the question fully on the next lines
+                    7. Example format:
+                       {"toolCall": "toggleUiMode", "arguments": {"mode": "dark"}}
+                       Here are all the users: [list of users...]
                     """.formatted(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(frontendTools));
                 fullUserMessage = userMessage + "\n\n" + frontendToolsPrompt;
             }
         } catch (Exception e) {}
+
+        // After deterministic check but before LLM call
+        // Check if message contains a data keyword alongside UI action
+        String preFetchedData = null;
+        String msgLower = userMessage.toLowerCase();
+
+        if (msgLower.contains("find all users") || msgLower.contains("list all users")
+                || msgLower.contains("show all users") || msgLower.contains("list users")
+                || msgLower.contains("show users") || msgLower.contains("find users")) {
+            preFetchedData = userTools.listAllUsersDetailedTool();
+        } else if (msgLower.contains("list all admins") || msgLower.contains("show admins")
+                || msgLower.contains("list admins")) {
+            preFetchedData = userTools.listUsersByRoleTool("ADMIN");
+        }
+
+        // NEW — pre-fetch RAG data for common policy keywords
+        // Only do this when message also contains a UI action
+        boolean hasUiAction = msgLower.contains("switch") || msgLower.contains("toggle")
+            || msgLower.contains("dark mode") || msgLower.contains("light mode")
+            || msgLower.contains("go to") || msgLower.contains("navigate")
+            || msgLower.contains("background");
+
+        boolean hasRagQuery = msgLower.contains("policy") || msgLower.contains("benefit")
+            || msgLower.contains("leave") || msgLower.contains("refund")
+            || msgLower.contains("holiday") || msgLower.contains("vacation");
+
+        if (hasUiAction && hasRagQuery && preFetchedData == null) {
+            // Extract the question part and pre-fetch via RAG
+            preFetchedData = ragTools.searchPolicyTool(userMessage);
+        }
+
+        // If data was pre-fetched, inject it into the message
+        if (preFetchedData != null) {
+            fullUserMessage = fullUserMessage + "\n\nHere is the data to include in your response:\n" + preFetchedData;
+        }
 
         ChatResponse response = chatClient.prompt()
                 .messages(history)
@@ -103,8 +144,24 @@ public class ReadOnlyOrchestratorAgent {
 
         String thinking = "Searching company knowledge base and documents to find relevant information for: \"" + userMessage + "\"";
 
-        chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
-        chatMemory.add(chatId, List.of(new AssistantMessage(content)));
+        boolean isFrontendToolCall = content != null && content.trim().contains("toolCall");
+
+        if (saveToMemory) {
+            chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
+
+            if (!isFrontendToolCall) {
+                // Normal response — save as is
+                chatMemory.add(chatId, List.of(new AssistantMessage(content)));
+            } else {
+                // Frontend tool call — extract and save only the text after the JSON
+                int jsonEnd = content != null ? content.lastIndexOf('}') : -1;
+                String remainingText = jsonEnd >= 0 ? content.substring(jsonEnd + 1).trim() : "";
+                if (!remainingText.isEmpty()) {
+                    // Save only the natural language part, not the raw JSON
+                    chatMemory.add(chatId, List.of(new AssistantMessage(remainingText)));
+                }
+            }
+        }
 
         int tokens = 0;
         if (response.getMetadata() != null && response.getMetadata().getUsage() != null) {
@@ -117,57 +174,7 @@ public class ReadOnlyOrchestratorAgent {
         return new ThinkingResponse(content, thinking);
     }
 
-    public ThinkingResponse resumeWithHistory(List<Message> history, String chatId, List<AgUiParameters.FrontendToolDefinition> frontendTools) {
-        long startTime = System.currentTimeMillis();
-        
-        try {
-            if (frontendTools != null && !frontendTools.isEmpty() && !history.isEmpty()) {
-                Message lastMessage = history.get(history.size() - 1);
-                if (lastMessage instanceof UserMessage) {
-                    String frontendToolsPrompt = """
-                        You also have access to these UI control tools that execute in the frontend:
-                        %s
-                        When you decide to call one of these tools, output ONLY a JSON block formatted exactly like this:
-                        {"toolCall": "toolName", "arguments": {"arg1": "val1"}}
-                        Do not output any other text.
-                        """.formatted(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(frontendTools));
-                    
-                    String updatedContent = lastMessage.getText() + "\n\n" + frontendToolsPrompt;
-                    history.set(history.size() - 1, new UserMessage(updatedContent));
-                }
-            }
-        } catch (Exception e) {}
 
-        ChatResponse response;
-        try {
-            response = chatClient.prompt()
-                    .messages(history)
-                    .call()
-                    .chatResponse();
-
-            if (response == null || response.getResult() == null) {
-                return new ThinkingResponse("I've noted your response.", "");
-            }
-        } catch (java.util.NoSuchElementException e) {
-            return new ThinkingResponse("Action noted. Let me know if you need anything else.", "");
-        } catch (Exception e) {
-            return new ThinkingResponse("Action noted. Let me know if you need anything else.", "");
-        }
-        
-        AssistantMessage assistantMessage = response.getResult().getOutput();
-        String content = assistantMessage.getText();
-        String thinking = "Resuming based on frontend tool result...";
-
-        chatMemory.add(chatId, List.of(new AssistantMessage(content)));
-        
-        int tokens = response.getMetadata() != null && response.getMetadata().getUsage() != null ? 
-            response.getMetadata().getUsage().getTotalTokens() : 0;
-            
-        saveLog("ReadOnlyOrchestratorAgent", "Tool Result Resumption", content, chatId,
-                System.currentTimeMillis() - startTime, tokens);
-
-        return new ThinkingResponse(content, thinking);
-    }
 
     private String handleDeterministicRead(String msg) {
         if (msg == null) return null;

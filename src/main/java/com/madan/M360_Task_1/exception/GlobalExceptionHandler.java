@@ -49,7 +49,14 @@ public class GlobalExceptionHandler {
 
     // Handles any unexpected error
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<?> handleGenericException(Exception ex) {
+    public ResponseEntity<?> handleGenericException(Exception ex, jakarta.servlet.http.HttpServletRequest request) {
+
+        String acceptHeader = request.getHeader("Accept");
+        if (acceptHeader != null && acceptHeader.contains("text/event-stream")) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(org.springframework.http.MediaType.TEXT_PLAIN)
+                .body("Error: " + ex.getMessage());
+        }
 
         Map<String, Object> response = new HashMap<>();
         response.put("timestamp", LocalDateTime.now());

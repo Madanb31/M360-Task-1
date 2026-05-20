@@ -16,6 +16,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import com.madan.M360_Task_1.ai.AgUiParameters.FrontendToolDefinition;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.ai.chat.memory.ChatMemory;
 
 @Service
 public class OrchestratorStreamService {
@@ -25,12 +26,14 @@ public class OrchestratorStreamService {
 
     private final ReadOnlyOrchestratorAgent readOnlyOrchestratorAgent;
     private final AdminOrchestratorAgent adminOrchestratorAgent;
+    private final ChatMemory chatMemory;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public OrchestratorStreamService(ReadOnlyOrchestratorAgent readOnlyOrchestratorAgent, AdminOrchestratorAgent adminOrchestratorAgent) {
+    public OrchestratorStreamService(ReadOnlyOrchestratorAgent readOnlyOrchestratorAgent, AdminOrchestratorAgent adminOrchestratorAgent, ChatMemory chatMemory) {
         this.readOnlyOrchestratorAgent = readOnlyOrchestratorAgent;
         this.adminOrchestratorAgent = adminOrchestratorAgent;
+        this.chatMemory = chatMemory;
     }
 
     public SseEmitter stream(AgUiParameters parameters, boolean isAdmin) {
@@ -51,9 +54,9 @@ public class OrchestratorStreamService {
             try {
                 ThinkingResponse response;
                 if (isAdmin) {
-                    response = adminOrchestratorAgent.orchestrateWithThinking(parameters.getMessage(), safeChatId, parameters.getFrontendTools());
+                    response = adminOrchestratorAgent.orchestrateWithThinking(parameters.getMessage(), safeChatId, parameters.getFrontendTools(), true);
                 } else {
-                    response = readOnlyOrchestratorAgent.orchestrateWithThinking(parameters.getMessage(), safeChatId, parameters.getFrontendTools());
+                    response = readOnlyOrchestratorAgent.orchestrateWithThinking(parameters.getMessage(), safeChatId, parameters.getFrontendTools(), true);
                 }
 
                 String answer = response.answer();
@@ -74,7 +77,9 @@ public class OrchestratorStreamService {
                     // Extract just the JSON object in case Gemini adds preamble text
                     int jsonStart = cleanAnswer.indexOf('{');
                     int jsonEnd = cleanAnswer.lastIndexOf('}');
+                    String remainingText = "";
                     if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
+                        remainingText = cleanAnswer.substring(jsonEnd + 1).trim();
                         cleanAnswer = cleanAnswer.substring(jsonStart, jsonEnd + 1);
                     } else {
                         // Throw exception to skip parsing and fall into normal answer flow
@@ -101,6 +106,13 @@ public class OrchestratorStreamService {
                                 "args", args
                             ));
                             emitter.send(SseEmitter.event().name("tool_call").data(jsonEvent));
+                            
+                            if (!remainingText.isEmpty()) {
+                                // Stream the remaining text as the answer
+                                emitter.send(SseEmitter.event().name("answer")
+                                    .data(objectMapper.writeValueAsString(Map.of("answer", remainingText))));
+                            }
+                            
                             emitter.complete();
                             return;
                         }
@@ -141,26 +153,31 @@ public class OrchestratorStreamService {
         emitter.onTimeout(() -> emitter.complete());
         emitter.onError((e) -> emitter.complete());
 
+        boolean isAdmin = body.isAdmin(); // or determine from chatId/security context
+
         executor.execute(() -> {
             CURRENT_EMITTER.set(emitter);
             try {
-                List<Message> history = new ArrayList<>();
+                // Build a natural tool result message
+                String toolResultMessage = body.getResult().equals("accepted")
+                    ? "The user accepted the " + body.getToolName() + " action. It has been executed successfully in the UI. Do NOT repeat or re-answer any previous questions — just briefly confirm the UI action was completed."
+                    : "The user rejected the " + body.getToolName() + " action. Do NOT repeat or re-answer any previous questions — just briefly acknowledge the rejection.";
 
-                // Only add the tool result message — don't rebuild entire history
-                String toolResultContent = body.getResult().equals("accepted")
-                    ? "The user accepted the " + body.getToolName() + " action. It has been executed successfully in the UI. Please confirm this naturally."
-                    : "The user rejected the " + body.getToolName() + " action. Please acknowledge this naturally without calling any tools or outputting JSON.";
-                history.add(new UserMessage(toolResultContent));
+                // Retrieve cached frontend tools for this chatId
+                List<FrontendToolDefinition> frontendTools =
+                    chatFrontendTools.getOrDefault(body.getChatId(), new ArrayList<>());
 
-                ThinkingResponse response;
-                List<FrontendToolDefinition> frontendTools = chatFrontendTools.getOrDefault(body.getChatId(), new ArrayList<>());
-                
-                // Assuming admin since it has access to everything
-                response = adminOrchestratorAgent.resumeWithHistory(history, body.getChatId(), frontendTools);
+                // ChatMemory already has the full history — just call orchestrateWithThinking directly
+                ThinkingResponse response = isAdmin
+                    ? adminOrchestratorAgent.orchestrateWithThinking(toolResultMessage, body.getChatId(), frontendTools, false)
+                    : readOnlyOrchestratorAgent.orchestrateWithThinking(toolResultMessage, body.getChatId(), frontendTools, false);
 
-                String thinking = response.thinkingContent();
-                if (thinking != null && !thinking.isEmpty()) {
-                    StringTokenizer st = new StringTokenizer(thinking, " \n\r\t", true);
+                // Save only the clean final answer to ChatMemory
+                chatMemory.add(body.getChatId(), List.of(new AssistantMessage(response.answer())));
+
+                // Stream thinking tokens if present
+                if (response.thinkingContent() != null && !response.thinkingContent().isEmpty()) {
+                    StringTokenizer st = new StringTokenizer(response.thinkingContent(), " \n\r\t", true);
                     while (st.hasMoreTokens()) {
                         String token = st.nextToken();
                         String jsonToken = objectMapper.writeValueAsString(Map.of("token", token));
@@ -169,10 +186,10 @@ public class OrchestratorStreamService {
                     }
                 }
 
+                // Stream final answer
                 String jsonAnswer = objectMapper.writeValueAsString(Map.of("answer", response.answer()));
                 emitter.send(SseEmitter.event().name("answer").data(jsonAnswer));
                 emitter.complete();
-
             } catch (Exception e) {
                 emitter.completeWithError(e);
             } finally {

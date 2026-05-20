@@ -6,6 +6,8 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import com.madan.M360_Task_1.repository.UserRepository;
 
 import java.util.List;
 import java.util.UUID;
@@ -15,7 +17,11 @@ public class UserTools {
 
     @Autowired
     private UserService userService;
+    
+    @Autowired
+    private UserRepository userRepository;
 
+    @Transactional(readOnly = true)
     @Tool(description = "Looks up a user from the database by their ID. Returns their profile details including name, email, contact, address, and roles.")
     public String userLookupTool(@ToolParam(description = "The UUID of the user to look up") String userId) {
 
@@ -45,6 +51,7 @@ public class UserTools {
         );
     }
 
+    @Transactional(readOnly = true)
     @Tool(description = "Searches for users by name in the database. Returns matching users with their names and emails. Use this when asked to find users by name.")
     public String userSearchTool(@ToolParam(description = "The name to search for") String name) {
 
@@ -74,12 +81,13 @@ public class UserTools {
         return result.toString();
     }
 
+    @Transactional(readOnly = true)
     @Tool(description = "Finds users by a partial name match (case-insensitive). Returns ALL matches with ID, name, email, and roles. Use this tool whenever user asks to 'find user' or 'search user'.")
     public String findUsersByNameTool(
             @ToolParam(description = "Name or partial name to search for") String name) {
 
-        // Using Service
-        List<User> users = userService.getUsersByName(name);
+        // Using Repository directly for JOIN FETCH
+        List<User> users = userRepository.findByNameIgnoreCaseFetch(name);
 
         if (users.isEmpty()) {
             return "No users found matching name: " + name;
@@ -105,6 +113,7 @@ public class UserTools {
         return sb.toString();
     }
 
+    @Transactional(readOnly = true)
     @Tool(description = "Analyzes a user profile by userId using database data only. Returns completeness, missing fields, roles, and a recommendation.")
     public String analyzeUserProfileTool(
             @ToolParam(description = "UUID of the user to analyze") String userId) {
@@ -169,6 +178,7 @@ public class UserTools {
         );
     }
 
+    @Transactional(readOnly = true)
     @Tool(description = "Lists all users in the database. Returns all users with their IDs, names, emails, roles, and whether they have an address.")
     public String listAllUsersTool() {
         // Using Service
@@ -176,6 +186,7 @@ public class UserTools {
         return formatUserList(users);
     }
 
+    @Transactional(readOnly = true)
     @Tool(description = "Lists ALL users from the database with ID, username, name, email, roles, and whether they have an address.")
     public String listAllUsersDetailedTool() {
         // Using Service
@@ -183,6 +194,7 @@ public class UserTools {
         return formatUserList(users);
     }
 
+    @Transactional(readOnly = true)
     @Tool(description = "Lists users by role (ADMIN/USER). Returns ALL matching users with ID, username, name, email, and roles.")
     public String listUsersByRoleTool(
             @ToolParam(description = "Role name to filter by (e.g., ADMIN, USER)") String roleName) {
@@ -206,6 +218,7 @@ public class UserTools {
         return sb.toString();
     }
 
+    @Transactional(readOnly = true)
     @Tool(description = "Analyzes ALL user profiles in the database and returns a complete vs incomplete report.")
     public String analyzeAllUsersProfilesTool() {
         // Using Service
@@ -240,6 +253,7 @@ public class UserTools {
             """.formatted(total, complete, incomplete, incompleteDetails);
     }
 
+    @Transactional(readOnly = true)
     @Tool(description = "Returns statistics about users in the database.")
     public String userStatsTool() {
         // Using Service
