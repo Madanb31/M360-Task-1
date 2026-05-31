@@ -21,6 +21,7 @@ Automate user management with security, auditability, and human oversight built 
 - [Architecture](#-architecture)
 - [The Agents](#-the-agents)
 - [Security & Governance](#-security--governance)
+- [AI Thinking Component](#-ai-thinking-component)
 - [Tech Stack](#-tech-stack)
 - [Key Features](#-key-features)
 - [Getting Started](#-getting-started)
@@ -182,6 +183,87 @@ Every management action (Create / Delete) is also independently tracked.
 
 ---
 
+## 💡 AI Thinking Component
+
+A real-time thinking and reasoning display was added to the AI chat — showing exactly what the agent is doing while processing a query, similar to production agentic systems.
+
+### How It Works
+
+```
+User sends message
+        │
+        ▼
+SSE connection opens (GET /ai/orchestrate/stream)
+        │
+        ▼
+Agent decides to call searchPolicyTool
+        │
+        ▼
+@Aspect intercepts ──► streams tool_start event ──► UI shows spinner
+        │
+        ▼
+Tool executes against PgVector
+        │
+        ▼
+@Aspect intercepts ──► streams tool_done event ──► UI shows ✅
+        │
+        ▼
+Agent generates answer ──► streams word by word ──► UI shows thinking text
+        │
+        ▼
+Final answer sent ──► thinking card collapses to "View reasoning"
+```
+
+### Key Components
+
+**`ToolExecutionStreamingAspect`** — Spring AOP aspect that intercepts every `@Tool` annotated method in real time. Fires `tool_start` before execution and `tool_done` after. Also handles frontend action tools like `toggleUiMode` and `goToPage` by emitting a separate `frontend_action` SSE event.
+
+**`OrchestratorStreamService`** — Manages the SSE connection lifecycle. Uses a `ThreadLocal<SseEmitter>` so the aspect can access the current request's SSE pipe from anywhere in the same thread without direct coupling.
+
+**`ThinkingResponse`** — A Java record that carries both the final answer and thinking content from agents back to the stream service.
+
+**SSE Endpoints**
+
+| Endpoint | Role | Description |
+|---|---|---|
+| `GET /ai/orchestrate/stream` | USER | Streams thinking + answer for regular users |
+| `GET /ai/admin/orchestrate/stream` | ADMIN | Streams thinking + answer for admins |
+
+**Frontend — `AiChat.jsx`**
+
+- Handles three SSE event types: `step` (tool tracking), `thinking` (text tokens), `answer` (final response)
+- Shows live spinner while tool runs, checkmark when done
+- Thinking card auto-opens during streaming, collapses to "View reasoning" after
+- User can click to expand and read the full reasoning
+
+### Why Spring AOP Instead of Spring AI Advisors
+
+Spring AI's `CallAdvisor` sits at the `ChatClient` level and never sees individual tool calls happening inside the model's internal loop. Spring AOP intercepts at the method level — firing events at the exact millisecond each tool starts and finishes — making it 100% accurate.
+
+### Note on Native Thinking Tokens
+
+Gemini 2.5+ supports native thinking tokens but Spring AI 1.1.2 does not correctly expose them — it concatenates thinking text into the answer content instead of separating it. This was confirmed by reading the `GoogleGenAiChatModel` source code. The current implementation uses real tool execution tracking (via AOP) with a static thinking text placeholder. Once Spring AI exposes thinking tokens properly, the static text can be replaced with one line of real token extraction.
+
+### Agentic UI — Frontend Control Tools
+
+The AI can also control the frontend directly through dedicated tools:
+
+| Tool | What it does |
+|---|---|
+| `toggleUiMode` | Switches between light and dark mode |
+| `goToPage` | Navigates to a specific page in the app |
+
+These fire a `frontend_action` SSE event instead of the regular `step` event, and the React frontend reacts immediately to perform the UI change.
+
+### Multi-Tool and Combined Requests (Updates 5–8)
+
+- Combined requests like "switch to dark mode and what are the leave benefits?" are handled in one response — RAG answer streams first, then UI action fires
+- HITL and UI actions work together — approval card and UI confirmation appear in the same response
+- Frontend sends current UI state (page, theme, role) with every request so the agent gives context-aware responses
+- Floating chat widget available on every page — persists across navigation
+
+---
+
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
@@ -193,6 +275,8 @@ Every management action (Create / Delete) is also independently tracked.
 | **Database** | PostgreSQL + pgvector extension |
 | **Migrations** | Liquibase |
 | **Security** | Spring Security, JWT (jjwt), BCrypt |
+| **Real-time Streaming** | Spring SseEmitter + Server-Sent Events |
+| **AOP** | Spring AOP (`spring-boot-starter-aop`) |
 | **Frontend** | React.js, Bootstrap |
 | **Build** | Maven |
 
@@ -208,6 +292,10 @@ Every management action (Create / Delete) is also independently tracked.
 | 🎯 **Hallucination Control** | Deterministic routing for critical queries bypasses LLM generation |
 | 🔀 **Dual-Client Pattern** | Separate `ChatClient` for tool execution vs. JSON formatting |
 | 📚 **RAG** | Upload & chat with PDFs — policy documents, employee handbooks, etc. |
+| 💭 **Real-time Thinking** | Live tool execution tracking via Spring AOP streamed over SSE |
+| 🖥️ **Agentic UI** | AI controls the frontend — navigation, theme switching |
+| 🌊 **SSE Streaming** | Word-by-word response streaming with live thinking bubble |
+| 🤖 **Floating Chat Widget** | Persistent chat widget available on every page |
 
 ---
 
@@ -235,9 +323,13 @@ docker run -d \
 ```properties
 # application.properties
 spring.ai.google.genai.api-key=YOUR_GEMINI_KEY
+spring.ai.google.genai.chat.options.model=gemini-2.0-flash
+spring.ai.retry.max-attempts=1
 jwt.secret=YOUR_JWT_SECRET
 spring.datasource.url=jdbc:postgresql://localhost:5432/agenticdb
 spring.datasource.password=yourpassword
+spring.liquibase.enabled=false
+spring.jpa.hibernate.ddl-auto=update
 ```
 
 ### 3. Run the Backend
@@ -248,9 +340,9 @@ cd agentic-user-management
 mvn spring-boot:run
 ```
 
-> ✅ Liquibase runs automatically and creates all tables.  
-> 🔑 Default admin created: `admin` / `admin123`  
-> 📖 Swagger UI: [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
+> ✅ Schema created automatically on first run
+> 🔑 Default admin created: `admin` / `admin123`
+> 📖 Swagger UI: http://localhost:8080/swagger-ui/index.html
 
 ### 4. Run the Frontend
 
@@ -260,13 +352,16 @@ npm install
 npm start
 ```
 
-> 🌐 App available at [http://localhost:3000](http://localhost:3000)
+> 🌐 App available at http://localhost:3000
 
 ---
 
 ## 🔮 Roadmap
 
-- [ ] **Advanced Observability** — Dashboard for token usage & agent latency metrics
+- [ ] **Native Thinking Tokens** — Extract real Gemini thinking tokens once Spring AI exposes them properly
+- [ ] **Secure Stream Endpoints** — Replace permitAll() with proper JWT auth for SSE endpoints
+- [ ] **Tool Detection** — Replace system prompt approach with proxyToolCalls and dynamic tool registration
+- [ ] **Advanced Observability** — Dashboard for token usage and agent latency metrics
 - [ ] **Multi-Modal AI** — Support image inputs for user profile analysis
 - [ ] **Email Agents** — AI agent sends notifications on user creation / deletion
 - [ ] **Multi-tenant Support** — Isolated agent contexts per organization
