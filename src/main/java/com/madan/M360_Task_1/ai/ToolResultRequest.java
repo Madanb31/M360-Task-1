@@ -9,6 +9,15 @@ public class ToolResultRequest {
     private String result;
     private String chatId;
     private boolean isAdmin;
+    private AgUiParameters.UiState uiState;
+
+    public AgUiParameters.UiState getUiState() {
+        return uiState;
+    }
+
+    public void setUiState(AgUiParameters.UiState uiState) {
+        this.uiState = uiState;
+    }
 
     public String getToolCallId() {
         return toolCallId;

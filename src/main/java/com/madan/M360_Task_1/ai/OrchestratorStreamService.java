@@ -30,7 +30,8 @@ public class OrchestratorStreamService {
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public OrchestratorStreamService(ReadOnlyOrchestratorAgent readOnlyOrchestratorAgent, AdminOrchestratorAgent adminOrchestratorAgent, ChatMemory chatMemory) {
+    public OrchestratorStreamService(ReadOnlyOrchestratorAgent readOnlyOrchestratorAgent,
+            AdminOrchestratorAgent adminOrchestratorAgent, ChatMemory chatMemory) {
         this.readOnlyOrchestratorAgent = readOnlyOrchestratorAgent;
         this.adminOrchestratorAgent = adminOrchestratorAgent;
         this.chatMemory = chatMemory;
@@ -42,9 +43,10 @@ public class OrchestratorStreamService {
         emitter.onTimeout(() -> emitter.complete());
         emitter.onError((e) -> emitter.complete());
         emitter.onCompletion(() -> System.out.println("SSE completed"));
-        
-        String safeChatId = parameters.getChatId() != null ? parameters.getChatId() : (isAdmin ? "admin-chat-default" : "chat-default");
-        
+
+        String safeChatId = parameters.getChatId() != null ? parameters.getChatId()
+                : (isAdmin ? "admin-chat-default" : "chat-default");
+
         if (parameters.getFrontendTools() != null) {
             chatFrontendTools.put(safeChatId, parameters.getFrontendTools());
         }
@@ -54,71 +56,82 @@ public class OrchestratorStreamService {
             try {
                 ThinkingResponse response;
                 if (isAdmin) {
-                    response = adminOrchestratorAgent.orchestrateWithThinking(parameters.getMessage(), safeChatId, parameters.getFrontendTools(), true);
+                    response = adminOrchestratorAgent.orchestrateWithThinking(parameters.getMessage(), safeChatId,
+                            parameters.getFrontendTools(), parameters.getUiState(), true);
                 } else {
-                    response = readOnlyOrchestratorAgent.orchestrateWithThinking(parameters.getMessage(), safeChatId, parameters.getFrontendTools(), true);
+                    response = readOnlyOrchestratorAgent.orchestrateWithThinking(parameters.getMessage(), safeChatId,
+                            parameters.getFrontendTools(), parameters.getUiState(), true);
                 }
 
-                String answer = response.answer();
-                
-                // Fallback check: look for JSON formatted ToolCall in the response text
-                try {
-                    String cleanAnswer = answer.trim();
-                    if (cleanAnswer.startsWith("```json")) {
-                        cleanAnswer = cleanAnswer.substring(7);
-                    } else if (cleanAnswer.startsWith("```")) {
-                        cleanAnswer = cleanAnswer.substring(3);
-                    }
-                    if (cleanAnswer.endsWith("```")) {
-                        cleanAnswer = cleanAnswer.substring(0, cleanAnswer.length() - 3);
-                    }
-                    cleanAnswer = cleanAnswer.trim();
+                String content = response.answer();
+                boolean isFrontendToolCall = content != null && content.contains("toolCall");
 
-                    // Extract just the JSON object in case Gemini adds preamble text
-                    int jsonStart = cleanAnswer.indexOf('{');
-                    int jsonEnd = cleanAnswer.lastIndexOf('}');
-                    String remainingText = "";
-                    if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
-                        remainingText = cleanAnswer.substring(jsonEnd + 1).trim();
-                        cleanAnswer = cleanAnswer.substring(jsonStart, jsonEnd + 1);
-                    } else {
-                        // Throw exception to skip parsing and fall into normal answer flow
-                        throw new Exception("No valid JSON object found in answer");
-                    }
+                if (isFrontendToolCall) {
+                    // Find the JSON block — could be at start OR end of response
+                    int jsonStart = content.indexOf('{');
+                    int jsonEnd = content.lastIndexOf('}');
 
-                    com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(cleanAnswer);
-                    if (node.has("toolCall")) {
-                        String toolName = node.get("toolCall").asText();
-                        com.fasterxml.jackson.databind.JsonNode argsNode = node.get("arguments");
+                    if (jsonStart >= 0 && jsonEnd >= 0 && jsonEnd > jsonStart) {
+                        String jsonBlock = content.substring(jsonStart, jsonEnd + 1);
+                        String beforeJson = content.substring(0, jsonStart).trim();
+                        String afterJson = content.substring(jsonEnd + 1).trim();
 
-                        boolean isFrontendTool = parameters.getFrontendTools() != null &&
-                            parameters.getFrontendTools().stream()
-                                .anyMatch(t -> t.getName().equals(toolName));
+                        try {
+                            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(jsonBlock);
+                            if (node.has("toolCall")) {
+                                String toolName = node.get("toolCall").asText();
+                                Map<String, Object> args = objectMapper.convertValue(
+                                        node.get("arguments"), Map.class);
 
-                        if (isFrontendTool) {
-                            Map<String, Object> args = objectMapper.convertValue(argsNode, Map.class);
-                            String toolCallId = UUID.randomUUID().toString();
+                                // Check if it's a known frontend tool
+                                List<AgUiParameters.FrontendToolDefinition> frontendTools = chatFrontendTools
+                                        .getOrDefault(safeChatId, new ArrayList<>());
+                                boolean isFrontendTool = frontendTools.stream()
+                                        .anyMatch(t -> t.getName().equals(toolName));
 
-                            String jsonEvent = objectMapper.writeValueAsString(Map.of(
-                                "type", "TOOL_CALL",
-                                "toolCallId", toolCallId,
-                                "tool", toolName,
-                                "args", args
-                            ));
-                            emitter.send(SseEmitter.event().name("tool_call").data(jsonEvent));
-                            
-                            if (!remainingText.isEmpty()) {
-                                // Stream the remaining text as the answer
-                                emitter.send(SseEmitter.event().name("answer")
-                                    .data(objectMapper.writeValueAsString(Map.of("answer", remainingText))));
+                                if (isFrontendTool) {
+                                    // Stream the text part first (before or after JSON)
+                                    String textPart = beforeJson.isEmpty() ? afterJson : beforeJson;
+
+                                    if (!textPart.isEmpty()) {
+                                        // Stream thinking tokens
+                                        if (response.thinkingContent() != null
+                                                && !response.thinkingContent().isEmpty()) {
+                                            StringTokenizer st = new StringTokenizer(response.thinkingContent(),
+                                                    " \n\r\t", true);
+                                            while (st.hasMoreTokens()) {
+                                                String token = st.nextToken();
+                                                emitter.send(SseEmitter.event().name("thinking")
+                                                        .data(objectMapper.writeValueAsString(Map.of("token", token))));
+                                                Thread.sleep(20);
+                                            }
+                                        }
+                                        // Stream the answer text
+                                        emitter.send(SseEmitter.event().name("answer")
+                                                .data(objectMapper.writeValueAsString(
+                                                        Map.of("answer", textPart))));
+                                    }
+
+                                    // Stream the TOOL_CALL event
+                                    String toolCallId = UUID.randomUUID().toString();
+                                    emitter.send(SseEmitter.event().name("tool_call")
+                                            .data(objectMapper.writeValueAsString(Map.of(
+                                                    "type", "TOOL_CALL",
+                                                    "toolCallId", toolCallId,
+                                                    "tool", toolName,
+                                                    "args", args))));
+
+                                    emitter.complete();
+                                    return;
+                                }
                             }
-                            
-                            emitter.complete();
-                            return;
+                        } catch (Exception e) {
+                            // JSON parsing failed — treat as normal response
                         }
                     }
-                } catch (Exception e) {
-                    // Not valid JSON or not a tool call, proceed normal response
+
+                    // If we get here, treat as normal response
+                    isFrontendToolCall = false;
                 }
 
                 String thinking = response.thinkingContent();
@@ -134,7 +147,7 @@ public class OrchestratorStreamService {
                 }
 
                 // Final answer event
-                String jsonAnswer = objectMapper.writeValueAsString(Map.of("answer", answer));
+                String jsonAnswer = objectMapper.writeValueAsString(Map.of("answer", content));
                 emitter.send(SseEmitter.event().name("answer").data(jsonAnswer));
                 emitter.complete();
 
@@ -160,17 +173,22 @@ public class OrchestratorStreamService {
             try {
                 // Build a natural tool result message
                 String toolResultMessage = body.getResult().equals("accepted")
-                    ? "The user accepted the " + body.getToolName() + " action. It has been executed successfully in the UI. Do NOT repeat or re-answer any previous questions — just briefly confirm the UI action was completed."
-                    : "The user rejected the " + body.getToolName() + " action. Do NOT repeat or re-answer any previous questions — just briefly acknowledge the rejection.";
+                        ? "The user accepted the " + body.getToolName()
+                                + " action. It has been executed successfully in the UI. Do NOT repeat or re-answer any previous questions — just briefly confirm the UI action was completed."
+                        : "The user rejected the " + body.getToolName()
+                                + " action. Do NOT repeat or re-answer any previous questions — just briefly acknowledge the rejection.";
 
                 // Retrieve cached frontend tools for this chatId
-                List<FrontendToolDefinition> frontendTools =
-                    chatFrontendTools.getOrDefault(body.getChatId(), new ArrayList<>());
+                List<FrontendToolDefinition> frontendTools = chatFrontendTools.getOrDefault(body.getChatId(),
+                        new ArrayList<>());
 
-                // ChatMemory already has the full history — just call orchestrateWithThinking directly
+                // ChatMemory already has the full history — just call orchestrateWithThinking
+                // directly
                 ThinkingResponse response = isAdmin
-                    ? adminOrchestratorAgent.orchestrateWithThinking(toolResultMessage, body.getChatId(), frontendTools, false)
-                    : readOnlyOrchestratorAgent.orchestrateWithThinking(toolResultMessage, body.getChatId(), frontendTools, false);
+                        ? adminOrchestratorAgent.orchestrateWithThinking(toolResultMessage, body.getChatId(),
+                                frontendTools, body.getUiState(), false)
+                        : readOnlyOrchestratorAgent.orchestrateWithThinking(toolResultMessage, body.getChatId(),
+                                frontendTools, body.getUiState(), false);
 
                 // Save only the clean final answer to ChatMemory
                 chatMemory.add(body.getChatId(), List.of(new AssistantMessage(response.answer())));

@@ -7,6 +7,15 @@ public class AgUiParameters {
     private String message;
     private String chatId;
     private List<FrontendToolDefinition> frontendTools;
+    private UiState uiState;
+
+    public UiState getUiState() {
+        return uiState;
+    }
+
+    public void setUiState(UiState uiState) {
+        this.uiState = uiState;
+    }
 
     public String getMessage() {
         return message;
@@ -59,6 +68,45 @@ public class AgUiParameters {
 
         public void setParameters(Map<String, Object> parameters) {
             this.parameters = parameters;
+        }
+    }
+
+    public static class UiState {
+        private String currentPage;  // e.g. "/chat", "/users", "/approvals"
+        private String theme;        // "dark" or "light"
+        private String userRole;     // "ADMIN" or "USER"
+        private String username;     // logged in username
+
+        public String getCurrentPage() {
+            return currentPage;
+        }
+
+        public void setCurrentPage(String currentPage) {
+            this.currentPage = currentPage;
+        }
+
+        public String getTheme() {
+            return theme;
+        }
+
+        public void setTheme(String theme) {
+            this.theme = theme;
+        }
+
+        public String getUserRole() {
+            return userRole;
+        }
+
+        public void setUserRole(String userRole) {
+            this.userRole = userRole;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
         }
     }
 }

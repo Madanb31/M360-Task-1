@@ -60,6 +60,32 @@ public class AdminOrchestratorAgent {
                                 - For creating users, use createUserNowTool.
                                 - For delete/role changes, the backend will create approval requests (HITL).
                                 - Never invent IDs.
+
+                                Proactive Navigation:
+                                When you answer a question that is clearly related to a specific page in the application,
+                                proactively suggest navigating there by appending a goToPage tool call JSON at the very
+                                end of your response — AFTER your full answer, not before.
+                                The user will be shown a confirmation card to accept or reject the navigation.
+
+                                Page suggestions based on context:
+                                - If answer is about pending approvals, approval requests → suggest goToPage approvals
+                                - If answer is about users, user list, user details, user management → suggest goToPage users
+                                - If answer is about roles, permissions, role management → suggest goToPage roles
+                                - If answer is about knowledge base, documents, policies, handbook → suggest goToPage knowledge
+                                - If answer is about AI chat, assistant → suggest goToPage chat
+                                - If answer is about dashboard, overview, summary → suggest goToPage dashboard
+
+                                Format for proactive navigation (JSON must be at the very END of your response):
+                                [your full answer here]
+                                {"toolCall": "goToPage", "arguments": {"pageId": "approvals"}}
+
+                                Important rules:
+                                - Only suggest navigation when it is genuinely helpful and relevant
+                                - Do NOT suggest navigation for every response — only when the context clearly maps to a page
+                                - Do NOT suggest navigation if the user is already on that page
+                                - The JSON must be the very last thing in your response
+                                - Only ONE navigation suggestion per response
+                                - Do not suggest navigation for general questions like "what is the refund policy"
                                 """)
                 // NOTE: No HITL tool needed now; we create requests deterministically in Java.
                 .defaultTools(readOnlyTools, userTools, userCreateTools, ragTools)
@@ -67,10 +93,11 @@ public class AdminOrchestratorAgent {
     }
 
     public String orchestrate(String userMessage, String chatId) {
-        return orchestrateWithThinking(userMessage, chatId, null, true).answer();
+        return orchestrateWithThinking(userMessage, chatId, null, null, true).answer();
     }
 
-    public ThinkingResponse orchestrateWithThinking(String userMessage, String chatId, List<AgUiParameters.FrontendToolDefinition> frontendTools, boolean saveToMemory) {
+    public ThinkingResponse orchestrateWithThinking(String userMessage, String chatId,
+            List<AgUiParameters.FrontendToolDefinition> frontendTools, AgUiParameters.UiState uiState, boolean saveToMemory) {
         long startTime = System.currentTimeMillis();
 
         List<Message> history = chatMemory.get(chatId);
@@ -88,47 +115,94 @@ public class AdminOrchestratorAgent {
 
         // 1) Deterministic HITL routing for risky actions
         String hitlResponse = tryHandleHitlDeterministically(userMessage, history);
+        boolean mightHaveUiAction = false;
+
         if (hitlResponse != null) {
-            if (saveToMemory) {
-                // save memory
-                chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
-                chatMemory.add(chatId, List.of(new AssistantMessage(hitlResponse)));
+            // Don't return early if there are frontend tools in the message
+            // Check if message might also contain a UI action
+            mightHaveUiAction = frontendTools != null && !frontendTools.isEmpty()
+                    && frontendTools.stream()
+                            .anyMatch(tool -> userMessage.toLowerCase().contains(tool.getName().toLowerCase()) ||
+                                    isUiActionKeyword(userMessage));
+
+            if (!mightHaveUiAction) {
+                // No UI action — return early as before
+                if (saveToMemory) {
+                    chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
+                    chatMemory.add(chatId, List.of(new AssistantMessage(hitlResponse)));
+                }
+                saveLog("AdminOrchestratorAgent", userMessage, hitlResponse, chatId,
+                        System.currentTimeMillis() - startTime, 0);
+                return new ThinkingResponse(hitlResponse, null);
             }
 
-            // audit log
-            saveLog("AdminOrchestratorAgent", userMessage, hitlResponse, chatId,
-                    System.currentTimeMillis() - startTime, 0);
-
-            return new ThinkingResponse(hitlResponse, null);
+            // Has potential UI action — inject HITL result and continue to LLM
+            // We will inject it into fullUserMessage below
+            if (saveToMemory) {
+                chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
+            }
+            // Continue to LLM call below — don't return
         }
 
         // 2) Normal LLM orchestration for non-risky actions
         String fullUserMessage = userMessage;
+
+        if (hitlResponse != null && mightHaveUiAction) {
+            fullUserMessage = fullUserMessage + "\n\n" +
+                    "SYSTEM NOTE: The following approval request has already been created " +
+                    "for the risky action in this message. Include this approval card in your response " +
+                    "and also handle any other parts of the request:\n" + hitlResponse;
+        }
         try {
             if (frontendTools != null && !frontendTools.isEmpty()) {
                 String frontendToolsPrompt = """
-                    
-                    IMPORTANT - UI CONTROL TOOLS:
-                    You have access to these UI tools that run in the browser:
-                    %s
-                    
-                    STRICT RULES for using these UI tools:
-                    1. NEVER use native function calling for these tools
-                    2. ALWAYS output them as plain JSON text in this exact format:
-                       {"toolCall": "toolName", "arguments": {"param": "value"}}
-                    3. The JSON must be the very first thing in your response if calling a UI tool
-                    4. Only ONE UI tool call per response
-                    5. After the JSON, you MUST continue with a normal text response to answer
-                       any other part of the user's question — NEVER stop after the JSON alone
-                    6. If the user asks to do a UI action AND asks a question or requests data,
-                       output the JSON first on line 1, then answer the question fully on the next lines
-                    7. Example format:
-                       {"toolCall": "toggleUiMode", "arguments": {"mode": "dark"}}
-                       Here are all the users: [list of users...]
-                    """.formatted(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(frontendTools));
-                fullUserMessage = userMessage + "\n\n" + frontendToolsPrompt;
+
+                        IMPORTANT - UI CONTROL TOOLS:
+                        You have access to these UI tools that run in the browser:
+                        %s
+
+                        STRICT RULES for using these UI tools:
+                        1. NEVER use native function calling for these tools
+                        2. ALWAYS output them as plain JSON text in this exact format:
+                           {"toolCall": "toolName", "arguments": {"param": "value"}}
+                        3. The JSON must be the very first thing in your response if calling a UI tool
+                        4. Only ONE UI tool call per response
+                        5. After the JSON, you MUST continue with a normal text response to answer
+                           any other part of the user's question — NEVER stop after the JSON alone
+                        6. If the user asks to do a UI action AND asks a question or requests data,
+                           output the JSON first on line 1, then answer the question fully on the next lines
+                        7. Example format:
+                           {"toolCall": "toggleUiMode", "arguments": {"mode": "dark"}}
+                           Here are all the users: [list of users...]
+                        """
+                        .formatted(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(frontendTools));
+                fullUserMessage = fullUserMessage + "\n\n" + frontendToolsPrompt;
             }
-        } catch (Exception e) {}
+        } catch (Exception e) {
+        }
+
+        // Inject UI state context if available
+        if (uiState != null) {
+            String uiContext = String.format("""
+
+                CURRENT UI CONTEXT (use this to make smarter decisions):
+                - Current page: %s
+                - Current theme: %s
+                - Logged in user: %s (%s)
+
+                Rules based on UI context:
+                - If user asks to switch to dark mode but theme is already "dark" — tell them it's already dark
+                - If user asks to go to a page but currentPage already matches — tell them they're already there
+                - If user asks to switch to light mode but theme is already "light" — tell them it's already light
+                - Use the current page context to give more relevant answers and suggestions
+                """,
+                uiState.getCurrentPage() != null ? uiState.getCurrentPage() : "unknown",
+                uiState.getTheme() != null ? uiState.getTheme() : "unknown",
+                uiState.getUsername() != null ? uiState.getUsername() : "unknown",
+                uiState.getUserRole() != null ? uiState.getUserRole() : "unknown"
+            );
+            fullUserMessage = fullUserMessage + uiContext;
+        }
 
         // After deterministic check but before LLM call
         // Check if message contains a data keyword alongside UI action
@@ -147,13 +221,13 @@ public class AdminOrchestratorAgent {
         // NEW — pre-fetch RAG data for common policy keywords
         // Only do this when message also contains a UI action
         boolean hasUiAction = msgLower.contains("switch") || msgLower.contains("toggle")
-            || msgLower.contains("dark mode") || msgLower.contains("light mode")
-            || msgLower.contains("go to") || msgLower.contains("navigate")
-            || msgLower.contains("background");
+                || msgLower.contains("dark mode") || msgLower.contains("light mode")
+                || msgLower.contains("go to") || msgLower.contains("navigate")
+                || msgLower.contains("background");
 
         boolean hasRagQuery = msgLower.contains("policy") || msgLower.contains("benefit")
-            || msgLower.contains("leave") || msgLower.contains("refund")
-            || msgLower.contains("holiday") || msgLower.contains("vacation");
+                || msgLower.contains("leave") || msgLower.contains("refund")
+                || msgLower.contains("holiday") || msgLower.contains("vacation");
 
         if (hasUiAction && hasRagQuery && preFetchedData == null) {
             // Extract the question part and pre-fetch via RAG
@@ -174,23 +248,29 @@ public class AdminOrchestratorAgent {
         AssistantMessage assistantMessage = response.getResult().getOutput();
         String content = assistantMessage.getText();
 
-        String thinking = "Searching company knowledge base and documents to find relevant information for: \"" + userMessage + "\"";
+        String thinking = "Searching company knowledge base and documents to find relevant information for: \""
+                + userMessage + "\"";
 
         boolean isFrontendToolCall = content != null && content.trim().contains("toolCall");
+        boolean hitlAlreadySavedUserMessage = hitlResponse != null && mightHaveUiAction;
 
         if (saveToMemory) {
-            chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
-
+            if (!hitlAlreadySavedUserMessage) {
+                chatMemory.add(chatId, List.of(new UserMessage(userMessage)));
+            }
             if (!isFrontendToolCall) {
-                // Normal response — save as is
                 chatMemory.add(chatId, List.of(new AssistantMessage(content)));
             } else {
-                // Frontend tool call — extract and save only the text after the JSON
-                int jsonEnd = content != null ? content.lastIndexOf('}') : -1;
-                String remainingText = jsonEnd >= 0 ? content.substring(jsonEnd + 1).trim() : "";
-                if (!remainingText.isEmpty()) {
-                    // Save only the natural language part, not the raw JSON
-                    chatMemory.add(chatId, List.of(new AssistantMessage(remainingText)));
+                // Extract text part — could be before or after JSON
+                int jsonStart = content.indexOf('{');
+                int jsonEnd = content.lastIndexOf('}');
+                String beforeJson = jsonStart > 0 ? content.substring(0, jsonStart).trim() : "";
+                String afterJson = jsonEnd >= 0 && jsonEnd < content.length() - 1
+                        ? content.substring(jsonEnd + 1).trim()
+                        : "";
+                String textToSave = beforeJson.isEmpty() ? afterJson : beforeJson;
+                if (!textToSave.isEmpty()) {
+                    chatMemory.add(chatId, List.of(new AssistantMessage(textToSave)));
                 }
             }
         }
@@ -206,7 +286,15 @@ public class AdminOrchestratorAgent {
         return new ThinkingResponse(content, thinking);
     }
 
-
+    private boolean isUiActionKeyword(String message) {
+        String m = message.toLowerCase();
+        return m.contains("switch to") || m.contains("toggle")
+                || m.contains("go to") || m.contains("navigate to")
+                || m.contains("open page") || m.contains("background")
+                || m.contains("dark mode") || m.contains("light mode")
+                || m.contains("theme") || m.contains("colour")
+                || m.contains("color");
+    }
 
     private String handleDeterministicRead(String msg) {
         if (msg == null)
@@ -322,7 +410,11 @@ public class AdminOrchestratorAgent {
             return after.split("\\s+")[0];
         }
         // "delete user X", "promote user X"
-        String[] triggers = {"delete user ", "promote user ", "demote user ", "assign admin to "};
+        String[] triggers = { "delete user ", "promote user ", "demote user ", "assign admin to ",
+                "assign admin role to ", // ← add this
+                "assign role to ", // ← add this
+                "give admin to ", // ← add this
+                "give admin role to " };
         for (String trigger : triggers) {
             if (m.contains(trigger)) {
                 String after = message.substring(m.indexOf(trigger) + trigger.length()).trim();
@@ -333,7 +425,8 @@ public class AdminOrchestratorAgent {
     }
 
     private String extractUuid(String text) {
-        if (text == null) return null;
+        if (text == null)
+            return null;
         Matcher m = UUID_PATTERN.matcher(text);
         return m.find() ? m.group() : null;
     }
